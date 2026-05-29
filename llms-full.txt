@@ -23,7 +23,7 @@ The short index lives at `llms.txt` (see https://llmstxt.org/).
 
 Part of the [ai\*js micro-runtime ecosystem](https://github.com/yshengliao) — see also [aifsmjs](https://github.com/yshengliao/aifsmjs) (FSM), [aiecsjs](https://github.com/yshengliao/aiecsjs) (ECS), [aibridgejs](https://github.com/yshengliao/aibridgejs) (cross-context RPC), [aieventjs](https://github.com/yshengliao/aieventjs) (event emitter), [aipooljs](https://github.com/yshengliao/aipooljs) (object pool), and [aiaudiojs](https://github.com/yshengliao/aiaudiojs) (Web Audio shell).
 
-> **Status: 0.3.1 published.** `retrieveInto(region, target)` is a steady-state zero-allocation broadphase (reused internal scratch + caller buffer); property-based dedup invariants. ≥95% coverage, ≤2 KB gzip.
+> **Status: 0.4.0 published.** Dependency hygiene + 1.0-track stability freeze — no runtime API change. `retrieveInto(region, target)` is a steady-state zero-allocation broadphase (reused internal scratch + caller buffer); property-based dedup invariants. ≥95% coverage, ≤2 KB gzip.
 
 ---
 
@@ -77,7 +77,7 @@ function nearbyEnemies(player: Body, enemies: Body[]): Body[] {
 }
 ```
 
-Coordinate semantics match PixiJS `getBounds()`: `x + width` and `y + height` are exclusive.
+Right-open coordinate semantics: `x + width` and `y + height` are exclusive (renderer-neutral; matches common conventions such as PixiJS `getBounds()`).
 
 ---
 
@@ -135,6 +135,7 @@ Full JSDoc lives in [`src/index.ts`](src/index.ts).
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | **0.1.0**  | `createQuadtree`, `insert` / `retrieve` / `clear` / `dispose`, Set-based dedup, ≥95% coverage, ≤2 KB gzip.                              |
 | **0.3.0**  | `retrieveInto(region, target)` zero-alloc API; property-based tests (`fast-check`); STABILITY.md tracking.                            |
+| **0.4.0**  | Dependency hygiene (removed unused `tsx`, aligned `fast-check`); 0.3.x public surface frozen for the 1.x track. No runtime API change.                |
 | **0.6+**   | Evaluate 3D octree variant (`createOctree<T extends AABB3>`); see `STABILITY.md` for current draft.                                  |
 
 ---
@@ -154,6 +155,36 @@ All notable changes to this project are documented here. The format follows
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.4.0] - 2026-05-29
+
+Dependency hygiene + stability freeze. **No runtime API addition or behaviour
+change** — `dist/index.js` is byte-identical to 0.3.1; consumers see no
+difference. This release unifies the ai*js family version line at 0.4.0 and
+formally freezes the public surface for the 1.x track.
+
+### Changed
+
+- **devDependencies** — removed unused `tsx` (no script, config, or example in
+  this package invoked it) and aligned `fast-check` `^3.23.0` → `^4.8.0` to
+  match the rest of the ai*js family. Both are dev-only and absent from the
+  published tarball (`files` ships `dist` + docs only), so consumers are
+  unaffected.
+
+### Stability
+
+- The 0.3.x public surface — `createQuadtree`, the `Quadtree<T>` interface and
+  all its members (`insert` / `retrieve` / `retrieveInto` / `clear` /
+  `dispose` / `disposed`), `AABB`, `QuadtreeOptions`, `QuadtreeError`,
+  `QuadtreeDisposedError` — is declared **frozen for the 1.x track**: it will
+  not break before a 1.0.0+ major. The 3D octree variant remains a draft
+  (target v0.6+).
+
+### Internal (not shipped to npm)
+
+- `pnpm audit` reports no known vulnerabilities; `pnpm-lock.yaml` regenerated
+  after the devDependency changes. Property tests re-run green under
+  fast-check v4.
 
 ## [0.3.1] - 2026-05-29
 

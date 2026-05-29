@@ -6,6 +6,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-29
+
+Dependency hygiene + stability freeze. **No runtime API addition or behaviour
+change** — `dist/index.js` is byte-identical to 0.3.1; consumers see no
+difference. This release unifies the ai*js family version line at 0.4.0 and
+formally freezes the public surface for the 1.x track.
+
+### Changed
+
+- **devDependencies** — removed unused `tsx` (no script, config, or example in
+  this package invoked it) and aligned `fast-check` `^3.23.0` → `^4.8.0` to
+  match the rest of the ai*js family. Both are dev-only and absent from the
+  published tarball (`files` ships `dist` + docs only), so consumers are
+  unaffected.
+
+### Stability
+
+- The 0.3.x public surface — `createQuadtree`, the `Quadtree<T>` interface and
+  all its members (`insert` / `retrieve` / `retrieveInto` / `clear` /
+  `dispose` / `disposed`), `AABB`, `QuadtreeOptions`, `QuadtreeError`,
+  `QuadtreeDisposedError` — is declared **frozen for the 1.x track**: it will
+  not break before a 1.0.0+ major. The 3D octree variant remains a draft
+  (target v0.6+).
+
+### Internal (not shipped to npm)
+
+- `pnpm audit` reports no known vulnerabilities; `pnpm-lock.yaml` regenerated
+  after the devDependency changes. Property tests re-run green under
+  fast-check v4.
+
 ## [0.3.1] - 2026-05-29
 
 ### Changed

@@ -9,8 +9,9 @@ unfit for production reliance.
 
 ## Stable
 
-The following are stable as of v0.3.0 and will not break without a
-major version bump (v1.0.0+).
+The following are stable (since v0.3.0) and, as of **v0.4.0**, formally
+**frozen for the 1.x track** — they will not break before a major version
+bump (v1.0.0+).
 
 ### Exports
 
@@ -36,8 +37,9 @@ major version bump (v1.0.0+).
 
 - Dedup: `retrieve` / `retrieveInto` return each candidate exactly once
   even if it spans multiple quadrants.
-- Right-open AABB: `x + width` and `y + height` are exclusive (matches
-  PixiJS `getBounds()`).
+- Right-open AABB: `x + width` and `y + height` are exclusive
+  (renderer-neutral; matches common conventions such as PixiJS
+  `getBounds()`).
 - `dispose()` is idempotent; subsequent public-method calls throw
   `QuadtreeDisposedError`.
 - All methods destructure cleanly: `const { insert } = qt; insert(obj)`

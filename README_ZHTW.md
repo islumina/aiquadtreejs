@@ -10,7 +10,7 @@
 
 隸屬 [ai\*js micro-runtime 生態系](https://github.com/yshengliao) ─ 另見 [aifsmjs](https://github.com/yshengliao/aifsmjs)（FSM）、[aiecsjs](https://github.com/yshengliao/aiecsjs)（ECS）、[aibridgejs](https://github.com/yshengliao/aibridgejs)（cross-context RPC）、[aieventjs](https://github.com/yshengliao/aieventjs)（event emitter）、[aipooljs](https://github.com/yshengliao/aipooljs)（物件池）、[aiaudiojs](https://github.com/yshengliao/aiaudiojs)（Web Audio 薄殼）。
 
-> **狀態：0.3.1 已發佈。** `retrieveInto(region, target)` 為 steady-state 零分配 broadphase（內部 scratch 重用 + caller buffer）與 property-based 去重不變式驗證。≥95% coverage，≤2 KB gzip。
+> **狀態：0.4.0 已發佈。** Dependency hygiene + 1.0-track 穩定凍結 — 無 runtime API 變動。`retrieveInto(region, target)` 為 steady-state 零分配 broadphase（內部 scratch 重用 + caller buffer）與 property-based 去重不變式。≥95% coverage，≤2 KB gzip。
 
 ---
 
@@ -64,7 +64,7 @@ function nearbyEnemies(player: Body, enemies: Body[]): Body[] {
 }
 ```
 
-座標語意對齊 PixiJS `getBounds()`：`x + width` 與 `y + height` 都是**右開**（不含）。
+右開座標語意：`x + width` 與 `y + height` 皆為右開（不含）。此為 renderer-neutral 慣例,PixiJS `getBounds()` 等渲染器亦同。
 
 ---
 
@@ -122,6 +122,7 @@ function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<T>;
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | **0.1.0**  | `createQuadtree`、`insert` / `retrieve` / `clear` / `dispose`、Set 去重、≥95% coverage、≤2 KB gzip。                                     |
 | **0.3.0**  | `retrieveInto(region, target)` 零分配 API；property-based 測試（`fast-check`）；`STABILITY.md` API 穩定度追蹤。                           |
+| **0.4.0**  | 依賴 hygiene（移除未用 `tsx`、對齊 `fast-check`）；0.3.x public surface 凍結為 1.x track。無 runtime API 變動。                                          |
 | **0.6+**   | 評估 3D octree 變體（`createOctree<T extends AABB3>`）；現有草稿見 `STABILITY.md`。                                                       |
 
 ---
