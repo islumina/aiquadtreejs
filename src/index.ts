@@ -6,9 +6,10 @@
 /**
  * Axis-aligned bounding box.
  *
- * Coordinate semantics follow PixiJS `getBounds()`: `x` / `y` are the top-left
- * corner and `x + width` / `y + height` are **exclusive**. A 32×32 sprite at
- * `(0, 0)` covers pixels `[0, 32)` on both axes.
+ * Right-open coordinate semantics: `x` / `y` are the top-left corner and
+ * `x + width` / `y + height` are **exclusive**. A 32×32 box at `(0, 0)`
+ * covers `[0, 32)` on both axes. (This matches the convention used by
+ * renderers such as PixiJS `getBounds()`, but the type is renderer-agnostic.)
  *
  * @public
  */
@@ -91,10 +92,12 @@ export interface Quadtree<T extends AABB> {
    * @invariant Dedup semantics identical to {@link retrieve}: objects
    *   spanning multiple quadrants appear exactly once.
    *
-   * Note: `retrieveInto` is not strictly zero-allocation — the internal
-   * dedup `Set<T>` and DFS stack are still allocated per call. What it
-   * eliminates is the result `Array` allocation, which is the largest
-   * frame-to-frame churn item.
+   * Allocation: in steady state this performs no per-call heap allocation.
+   * The dedup `Set` and DFS stack are reused across calls (cleared, not
+   * re-created), and results are written into the caller's `target` instead
+   * of a fresh array. The first calls may grow the internal scratch; once
+   * result sizes stabilise, allocation amortises to zero — the design goal
+   * for per-frame broadphase loops issuing thousands of queries.
    */
   retrieveInto(region: AABB, target: T[]): T[];
 
@@ -109,7 +112,8 @@ export interface Quadtree<T extends AABB> {
 
   /**
    * Idempotent teardown. Drops references so the GC can reclaim everything.
-   * Subsequent `insert` / `retrieve` / `clear` throw {@link QuadtreeDisposedError}.
+   * After disposal, every method except `dispose` itself — `insert`,
+   * `retrieve`, `retrieveInto`, `clear` — throws {@link QuadtreeDisposedError}.
    */
   dispose(): void;
 
@@ -320,17 +324,25 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
     insertNode(state.root, obj, state.maxObjects, state.maxLevels);
   }
 
+  // Reusable scratch for retrieveSet, hoisted so steady-state queries
+  // allocate nothing. Safe because the returned Set never escapes the
+  // module: retrieve copies it out via Array.from and retrieveInto via a
+  // push loop, both synchronously and fully before any subsequent call.
+  const scratchSet = new Set<T>();
+  const scratchStack: Node<T>[] = [];
+
   function retrieveSet(region: AABB): Set<T> {
-    const result = new Set<T>();
-    const stack: Node<T>[] = [state.root];
-    while (stack.length > 0) {
-      const node = stack.pop();
+    scratchSet.clear();
+    scratchStack.length = 0;
+    scratchStack.push(state.root);
+    while (scratchStack.length > 0) {
+      const node = scratchStack.pop();
       if (node === undefined) continue;
       if (!rectsOverlap(node.bounds, region)) continue;
-      for (const obj of node.objects) result.add(obj);
-      for (const child of node.children) stack.push(child);
+      for (const obj of node.objects) scratchSet.add(obj);
+      for (const child of node.children) scratchStack.push(child);
     }
-    return result;
+    return scratchSet;
   }
 
   function retrieve(region: AABB): T[] {
@@ -356,6 +368,8 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
     state.disposed = true;
     state.root.objects.length = 0;
     state.root.children.length = 0;
+    scratchSet.clear();
+    scratchStack.length = 0;
   }
 
   return {

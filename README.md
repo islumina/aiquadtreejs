@@ -10,7 +10,7 @@
 
 Part of the [ai\*js micro-runtime ecosystem](https://github.com/yshengliao) — see also [aifsmjs](https://github.com/yshengliao/aifsmjs) (FSM), [aiecsjs](https://github.com/yshengliao/aiecsjs) (ECS), [aibridgejs](https://github.com/yshengliao/aibridgejs) (cross-context RPC), [aieventjs](https://github.com/yshengliao/aieventjs) (event emitter), [aipooljs](https://github.com/yshengliao/aipooljs) (object pool), and [aiaudiojs](https://github.com/yshengliao/aiaudiojs) (Web Audio shell).
 
-> **Status: 0.3.0 published.** Adds `retrieveInto(region, target)` zero-allocation broadphase + property-based dedup invariants. ≥95% coverage, ≤2 KB gzip.
+> **Status: 0.3.1 published.** `retrieveInto(region, target)` is a steady-state zero-allocation broadphase (reused internal scratch + caller buffer); property-based dedup invariants. ≥95% coverage, ≤2 KB gzip.
 
 ---
 

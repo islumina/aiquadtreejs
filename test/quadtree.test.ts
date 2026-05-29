@@ -128,11 +128,15 @@ describe("B. insert + retrieve basics", () => {
     expect(result.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("B6. retrieve returns Array (not Set)", () => {
+  it("B6. retrieve returns a fresh Array each call (not a shared buffer)", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
     qt.insert(aabb(0, 0, 10, 10));
     const result = qt.retrieve(aabb(0, 0, 800, 600));
     expect(Array.isArray(result)).toBe(true);
+    // Backward-compat lock: retrieve must allocate a new array per call, so
+    // the v0.3.1 hoisted-scratch refactor cannot accidentally share a buffer.
+    const again = qt.retrieve(aabb(0, 0, 800, 600));
+    expect(again).not.toBe(result);
   });
 });
 
@@ -332,6 +336,34 @@ describe("F. dispose", () => {
     expect(qt2.disposed).toBe(false);
     expect(qt2.retrieve(aabb(0, 0, 800, 600))).toEqual([]);
   });
+
+  it("F5. full dispose cycle: use → dispose → all four methods throw → dispose-again no-throw → disposed===true", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const obj = aabb(100, 100, 32, 32);
+    const buf: AABB[] = [];
+
+    // Normal use before dispose — all four must succeed.
+    qt.insert(obj);
+    expect(qt.retrieve(aabb(0, 0, 800, 600))).toContain(obj);
+    expect(qt.retrieveInto(aabb(0, 0, 800, 600), buf)).toBe(buf);
+    expect(buf).toContain(obj);
+    qt.clear();
+    expect(qt.retrieve(aabb(0, 0, 800, 600))).toEqual([]);
+
+    qt.dispose();
+
+    // All four query/mutation methods must throw QuadtreeDisposedError.
+    expect(() => qt.insert(aabb(0, 0, 10, 10))).toThrow(QuadtreeDisposedError);
+    expect(() => qt.retrieve(aabb(0, 0, 800, 600))).toThrow(QuadtreeDisposedError);
+    expect(() => qt.retrieveInto(aabb(0, 0, 800, 600), buf)).toThrow(QuadtreeDisposedError);
+    expect(() => qt.clear()).toThrow(QuadtreeDisposedError);
+
+    // Second dispose must be idempotent (no throw).
+    expect(() => qt.dispose()).not.toThrow();
+
+    // disposed getter must reflect the final state.
+    expect(qt.disposed).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -450,7 +482,7 @@ describe("I. retrieveInto behaviour", () => {
     const buf: AABB[] = [];
     qt.retrieveInto(aabb(0, 0, 800, 600), buf);
     expect(buf).toContain(obj);
-    expect(buf.length).toBeGreaterThan(0);
+    expect(buf.length).toBe(1);
   });
 
   it("I5. consecutive calls with same buffer reflect latest query", () => {
@@ -558,5 +590,37 @@ describe("I. retrieveInto behaviour", () => {
     const arr = qt.retrieve(region);
     const bufSet = new Set(buf);
     for (const v of arr) expect(bufSet.has(v)).toBe(true);
+  });
+
+  it("I13. retrieveInto reuses the buffer; retrieve allocates fresh (contrast)", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    qt.insert(aabb(10, 10, 20, 20));
+    const buf: AABB[] = [];
+    expect(qt.retrieveInto(aabb(0, 0, 800, 600), buf)).toBe(buf);
+    expect(qt.retrieveInto(aabb(0, 0, 800, 600), buf)).toBe(buf); // same ref every call
+    const r1 = qt.retrieve(aabb(0, 0, 800, 600));
+    const r2 = qt.retrieve(aabb(0, 0, 800, 600));
+    expect(r1).not.toBe(r2); // retrieve never shares a buffer
+  });
+
+  it("I14. interleaved retrieve / retrieveInto do not corrupt each other", () => {
+    // v0.3.1 hoists an internal scratch Set + stack reused across calls.
+    // Interleaving distinct queries must keep every result correct and
+    // independent — this is the regression guard for the shared scratch.
+    const qt = createQuadtree({ bounds: aabb(0, 0, 100, 100), maxObjects: 1, maxLevels: 4 });
+    const nw = aabb(5, 5, 5, 5);
+    const se = aabb(90, 90, 5, 5);
+    qt.insert(nw);
+    qt.insert(se);
+    const bufNw: AABB[] = [];
+    qt.retrieveInto(aabb(0, 0, 40, 40), bufNw); // NW only
+    const all = qt.retrieve(aabb(0, 0, 100, 100)); // both — must not disturb bufNw
+    const bufSe: AABB[] = [];
+    qt.retrieveInto(aabb(60, 60, 40, 40), bufSe); // SE only
+    expect(bufNw).toContain(nw);
+    expect(bufNw).not.toContain(se);
+    expect(bufSe).toContain(se);
+    expect(bufSe).not.toContain(nw);
+    expect(new Set(all)).toEqual(new Set([nw, se]));
   });
 });

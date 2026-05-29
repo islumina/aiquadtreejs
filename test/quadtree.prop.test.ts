@@ -30,6 +30,21 @@ const regionArb = fc.record({
   height: fc.integer({ min: 0, max: 1000 }),
 });
 
+// Zero-extent points biased toward subdivision midpoints. Exercises the G4
+// regression: a point sitting exactly on midX / midY must not vanish after a
+// node subdivides. Plain random boxes almost never land on a midpoint, so
+// without this the property suite leaned entirely on deterministic G4 / I10.
+const midpointArb = fc.record({
+  id: fc.integer({ min: 0, max: 10_000 }),
+  x: fc.constantFrom(125, 250, 375, 500, 625, 750, 875),
+  y: fc.constantFrom(125, 250, 375, 500, 625, 750, 875),
+  width: fc.constant(0),
+  height: fc.constant(0),
+});
+
+// Body generator mixing ordinary boxes with midpoint points.
+const bodyArb = fc.oneof(aabbArb, midpointArb);
+
 // Bounds preset — fixed 1000×1000 root
 const BOUNDS = { x: 0, y: 0, width: 1000, height: 1000 };
 
@@ -40,7 +55,7 @@ const BOUNDS = { x: 0, y: 0, width: 1000, height: 1000 };
 describe("property: retrieve dedup invariant", () => {
   it("prop1. retrieve never returns duplicate references", () => {
     fc.assert(
-      fc.property(fc.array(aabbArb, { maxLength: 100 }), regionArb, (objs, region) => {
+      fc.property(fc.array(bodyArb, { maxLength: 100 }), regionArb, (objs, region) => {
         const qt = createQuadtree<Body>({ bounds: BOUNDS, maxObjects: 4, maxLevels: 4 });
         for (const o of objs) qt.insert(o);
         const result = qt.retrieve(region);
@@ -53,18 +68,18 @@ describe("property: retrieve dedup invariant", () => {
 
   it("prop2. retrieve never returns duplicate ids", () => {
     fc.assert(
-      fc.property(fc.array(aabbArb, { maxLength: 100 }), regionArb, (objs, region) => {
-        const qt = createQuadtree<Body>({ bounds: BOUNDS, maxObjects: 4, maxLevels: 4 });
-        for (const o of objs) qt.insert(o);
-        const result = qt.retrieve(region);
-        // Caveat: distinct objects may share id in generator — filter by reference first.
-        // If inserted objects already share ids across distinct references, skip: the
-        // id-uniqueness invariant only applies when the input set has unique ids.
-        const insertedIds = objs.map((o) => o.id);
-        if (new Set(insertedIds).size < objs.length) return true;
-        const refUnique = Array.from(new Set(result));
-        return refUnique.map((o) => o.id).length === new Set(refUnique.map((o) => o.id)).size;
-      }),
+      // Unique ids by construction (no birthday-paradox collisions to skip),
+      // so the id-uniqueness invariant is exercised on every run.
+      fc.property(
+        fc.uniqueArray(bodyArb, { selector: (o) => o.id, maxLength: 100 }),
+        regionArb,
+        (objs, region) => {
+          const qt = createQuadtree<Body>({ bounds: BOUNDS, maxObjects: 4, maxLevels: 4 });
+          for (const o of objs) qt.insert(o);
+          const ids = qt.retrieve(region).map((o) => o.id);
+          return ids.length === new Set(ids).size;
+        },
+      ),
       { numRuns: 100 },
     );
   });
@@ -73,12 +88,12 @@ describe("property: retrieve dedup invariant", () => {
 describe("property: retrieveInto invariants", () => {
   it("prop3. retrieveInto preserves target identity", () => {
     fc.assert(
-      fc.property(fc.array(aabbArb, { maxLength: 100 }), regionArb, (objs, region) => {
+      fc.property(fc.array(bodyArb, { maxLength: 100 }), regionArb, (objs, region) => {
         const qt = createQuadtree<Body>({ bounds: BOUNDS, maxObjects: 4, maxLevels: 4 });
         for (const o of objs) qt.insert(o);
         const buf: Body[] = [];
         const ret = qt.retrieveInto(region, buf);
-        return ret === buf;
+        return ret === buf && buf.every((v) => v !== undefined);
       }),
       { numRuns: 100 },
     );
@@ -86,7 +101,7 @@ describe("property: retrieveInto invariants", () => {
 
   it("prop4. retrieveInto content equals retrieve content (as set)", () => {
     fc.assert(
-      fc.property(fc.array(aabbArb, { maxLength: 100 }), regionArb, (objs, region) => {
+      fc.property(fc.array(bodyArb, { maxLength: 100 }), regionArb, (objs, region) => {
         const qt = createQuadtree<Body>({ bounds: BOUNDS, maxObjects: 4, maxLevels: 4 });
         for (const o of objs) qt.insert(o);
         const buf: Body[] = [];

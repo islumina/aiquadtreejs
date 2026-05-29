@@ -10,7 +10,7 @@
 
 隸屬 [ai\*js micro-runtime 生態系](https://github.com/yshengliao) ─ 另見 [aifsmjs](https://github.com/yshengliao/aifsmjs)（FSM）、[aiecsjs](https://github.com/yshengliao/aiecsjs)（ECS）、[aibridgejs](https://github.com/yshengliao/aibridgejs)（cross-context RPC）、[aieventjs](https://github.com/yshengliao/aieventjs)（event emitter）、[aipooljs](https://github.com/yshengliao/aipooljs)（物件池）、[aiaudiojs](https://github.com/yshengliao/aiaudiojs)（Web Audio 薄殼）。
 
-> **狀態：0.3.0 已發佈。** 新增 `retrieveInto(region, target)` 零分配 broadphase 與 property-based 去重不變式驗證。≥95% coverage，≤2 KB gzip。
+> **狀態：0.3.1 已發佈。** `retrieveInto(region, target)` 為 steady-state 零分配 broadphase（內部 scratch 重用 + caller buffer）與 property-based 去重不變式驗證。≥95% coverage，≤2 KB gzip。
 
 ---
 

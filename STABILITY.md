@@ -15,6 +15,7 @@ major version bump (v1.0.0+).
 ### Exports
 
 - `createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<T>`
+- `Quadtree<T extends AABB>` — the tree interface (`insert` / `retrieve` / `retrieveInto` / `clear` / `dispose` / `disposed`)
 - `AABB` — `{ x, y, width, height }`, right-open semantics
 - `QuadtreeOptions` — `{ bounds, maxObjects?, maxLevels? }`
 - `QuadtreeError` — thrown by validation failures in `createQuadtree`
