@@ -624,3 +624,256 @@ describe("I. retrieveInto behaviour", () => {
     expect(new Set(all)).toEqual(new Set([nw, se]));
   });
 });
+
+// ---------------------------------------------------------------------------
+// J. insert() input validation (Item 1 fix)
+// ---------------------------------------------------------------------------
+
+describe("J. insert() input validation", () => {
+  it("J1. insert with negative width throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.insert(aabb(10, 10, -1, 20))).toThrow(QuadtreeError);
+  });
+
+  it("J2. insert with negative height throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.insert(aabb(10, 10, 20, -1))).toThrow(QuadtreeError);
+  });
+
+  it("J3. insert with NaN x throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.insert(aabb(Number.NaN, 10, 20, 20))).toThrow(QuadtreeError);
+  });
+
+  it("J4. insert with NaN y throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.insert(aabb(10, Number.NaN, 20, 20))).toThrow(QuadtreeError);
+  });
+
+  it("J5. insert with NaN width throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.insert(aabb(10, 10, Number.NaN, 20))).toThrow(QuadtreeError);
+  });
+
+  it("J6. insert with NaN height throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.insert(aabb(10, 10, 20, Number.NaN))).toThrow(QuadtreeError);
+  });
+
+  it("J7. insert with Infinity x throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.insert(aabb(Number.POSITIVE_INFINITY, 10, 20, 20))).toThrow(QuadtreeError);
+  });
+
+  it("J8. insert with -Infinity y throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.insert(aabb(10, Number.NEGATIVE_INFINITY, 20, 20))).toThrow(QuadtreeError);
+  });
+
+  it("J9. insert with Infinity width throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.insert(aabb(10, 10, Number.POSITIVE_INFINITY, 20))).toThrow(QuadtreeError);
+  });
+
+  it("J10. insert with Infinity height throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.insert(aabb(10, 10, 20, Number.POSITIVE_INFINITY))).toThrow(QuadtreeError);
+  });
+
+  it("J11. zero-extent object (width=0, height=0) is accepted — not over-rejected", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const point = aabb(100, 100, 0, 0);
+    expect(() => qt.insert(point)).not.toThrow();
+    const result = qt.retrieve(aabb(0, 0, 800, 600));
+    expect(result).toContain(point);
+  });
+
+  it("J12. zero-width line (height>0) is accepted — not over-rejected", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const line = aabb(100, 50, 0, 100);
+    expect(() => qt.insert(line)).not.toThrow();
+    const result = qt.retrieve(aabb(0, 0, 800, 600));
+    expect(result).toContain(line);
+  });
+
+  it("J13. zero-height line (width>0) is accepted — not over-rejected", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const line = aabb(50, 100, 100, 0);
+    expect(() => qt.insert(line)).not.toThrow();
+    const result = qt.retrieve(aabb(0, 0, 800, 600));
+    expect(result).toContain(line);
+  });
+
+  it("J14. insert(null) throws QuadtreeError (not a raw TypeError)", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.insert(null as unknown as AABB)).toThrow(QuadtreeError);
+  });
+
+  it("J15. insert(undefined) throws QuadtreeError (not a raw TypeError)", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.insert(undefined as unknown as AABB)).toThrow(QuadtreeError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// K. Additional coverage (Item 2 tests)
+// ---------------------------------------------------------------------------
+
+describe("K. Object larger than root bounds — exactly-once in sub-queries", () => {
+  it("K1. oversized object appears exactly once in full-region query after subdivide", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 100, 100), maxObjects: 2, maxLevels: 4 });
+    // Filler objects to trigger subdivide
+    qt.insert(aabb(5, 5, 5, 5));
+    qt.insert(aabb(80, 80, 5, 5));
+    qt.insert(aabb(20, 20, 5, 5)); // third insert triggers subdivide
+    // Oversized: larger than root bounds
+    const huge = aabb(-50, -50, 300, 300);
+    qt.insert(huge);
+    const full = qt.retrieve(aabb(0, 0, 100, 100));
+    expect(full.filter((o) => o === huge).length).toBe(1);
+  });
+
+  it("K2. oversized object appears in NW, NE, SW, SE sub-queries each exactly once", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 100, 100), maxObjects: 1, maxLevels: 4 });
+    qt.insert(aabb(5, 5, 5, 5));
+    qt.insert(aabb(80, 80, 5, 5)); // triggers subdivide
+    const huge = aabb(-50, -50, 300, 300);
+    qt.insert(huge);
+    const nw = qt.retrieve(aabb(0, 0, 50, 50));
+    const ne = qt.retrieve(aabb(50, 0, 50, 50));
+    const sw = qt.retrieve(aabb(0, 50, 50, 50));
+    const se = qt.retrieve(aabb(50, 50, 50, 50));
+    expect(nw.filter((o) => o === huge).length).toBe(1);
+    expect(ne.filter((o) => o === huge).length).toBe(1);
+    expect(sw.filter((o) => o === huge).length).toBe(1);
+    expect(se.filter((o) => o === huge).length).toBe(1);
+  });
+});
+
+describe("K. retrieveInto zero-alloc steady-state (60-frame loop)", () => {
+  it("K3. buffer identity preserved across ~60 clear+insert+retrieveInto frames", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600), maxObjects: 4, maxLevels: 4 });
+    const buf: AABB[] = [];
+    const region = aabb(0, 0, 800, 600);
+
+    // Run 60 frames so the internal scratch reaches and holds steady state
+    for (let frame = 0; frame < 60; frame++) {
+      qt.clear();
+      for (let i = 0; i < 12; i++) {
+        qt.insert(aabb((i * 60) % 800, (i * 40) % 600, 20, 20));
+      }
+      const ret = qt.retrieveInto(region, buf);
+      // Buffer identity must be preserved every frame
+      expect(ret).toBe(buf);
+    }
+    // After steady state, buffer length must equal the number of distinct objects
+    expect(buf.length).toBeGreaterThan(0);
+  });
+});
+
+describe("K. Negative-origin bounds", () => {
+  it("K4. negative-origin tree inserts and retrieves negative-coord objects correctly", () => {
+    // Use maxObjects=2 to trigger subdivision so objects are segregated into
+    // child nodes — only then can a sub-region query exclude a distant object.
+    const qt = createQuadtree({
+      bounds: aabb(-200, -200, 400, 400),
+      maxObjects: 2,
+      maxLevels: 4,
+    });
+    // obj1 and obj2 are firmly in NW quadrant (x<0, y<0 relative to midpoint at 0,0)
+    const obj1 = aabb(-180, -180, 10, 10);
+    const obj2 = aabb(-50, -50, 5, 5);
+    // obj3 is firmly in SE quadrant (x>=0, y>=0)
+    const obj3 = aabb(100, 100, 20, 20);
+    qt.insert(obj1);
+    qt.insert(obj2);
+    qt.insert(obj3); // 3rd insert triggers subdivide: obj1+obj2 → NW, obj3 → SE
+    // Full-region query must return all three
+    const full = qt.retrieve(aabb(-200, -200, 400, 400));
+    expect(full).toContain(obj1);
+    expect(full).toContain(obj2);
+    expect(full).toContain(obj3);
+    // NW-only query: must include obj1 and obj2 but exclude obj3 (in SE child)
+    // midpoint of bounds is (-200+200, -200+200) = (0, 0)
+    // NW child: x in [-200,0), y in [-200,0)
+    const neg = qt.retrieve(aabb(-200, -200, 200, 200));
+    expect(neg).toContain(obj1);
+    expect(neg).toContain(obj2);
+    expect(neg).not.toContain(obj3);
+  });
+});
+
+describe("K. Point object deep subdivision", () => {
+  it("K5. zero-extent point at non-midpoint survives deep subdivision (maxLevels=4)", () => {
+    const qt = createQuadtree({
+      bounds: aabb(0, 0, 200, 200),
+      maxObjects: 1,
+      maxLevels: 4,
+    });
+    // Insert enough objects to drive subdivision deep
+    for (let i = 0; i < 8; i++) {
+      qt.insert(aabb(i * 10, i * 10, 5, 5));
+    }
+    // Zero-extent point at a non-midpoint position
+    const pt = aabb(73, 91, 0, 0);
+    qt.insert(pt);
+    // Tight region around the point — must retrieve it
+    const result = qt.retrieve(aabb(60, 80, 30, 30));
+    expect(result).toContain(pt);
+  });
+});
+
+describe("K. maxLevels=1 with same-quadrant cluster — all retrievable, zero duplicates", () => {
+  it("K6. many same-quadrant objects with maxLevels=1 are all retrievable without duplicates", () => {
+    const qt = createQuadtree({
+      bounds: aabb(0, 0, 200, 200),
+      maxObjects: 2,
+      maxLevels: 1,
+    });
+    // All objects in NW quadrant (x<100, y<100)
+    const objs: AABB[] = [];
+    for (let i = 0; i < 20; i++) {
+      const o = aabb(5 + i * 4, 5 + i * 4, 3, 3);
+      objs.push(o);
+      qt.insert(o);
+    }
+    const result = qt.retrieve(aabb(0, 0, 200, 200));
+    // All 20 distinct objects must appear
+    for (const o of objs) {
+      expect(result).toContain(o);
+    }
+    // Zero duplicates — Set size must equal array length
+    expect(result.length).toBe(new Set(result).size);
+  });
+});
+
+describe("K. Non-origin bounds", () => {
+  it("K7. tree with non-origin bounds (x=500,y=500) inserts and retrieves correctly", () => {
+    // Use maxObjects=2 so subdivision triggers on the 3rd insert, letting
+    // sub-region queries exclude objects in a different child node.
+    const qt = createQuadtree({
+      bounds: aabb(500, 500, 400, 300),
+      maxObjects: 2,
+      maxLevels: 4,
+    });
+    // obj1 is firmly in NW child (midpoint is (700, 650))
+    const obj1 = aabb(520, 520, 30, 30);
+    // obj2 is near the NW quadrant too — used as a filler to trigger subdivide
+    const obj2 = aabb(540, 540, 30, 30);
+    // obj3 is firmly in SE child (x≥700, y≥650)
+    const obj3 = aabb(850, 750, 20, 20);
+    qt.insert(obj1);
+    qt.insert(obj2);
+    qt.insert(obj3); // 3rd insert triggers subdivide; obj1+obj2 → NW child, obj3 → SE child
+    const full = qt.retrieve(aabb(500, 500, 400, 300));
+    expect(full).toContain(obj1);
+    expect(full).toContain(obj2);
+    expect(full).toContain(obj3);
+    // NW child covers [500,700)×[500,650); obj3 is at x=850 well outside it.
+    // midpoint of bounds: x=500+200=700, y=500+150=650
+    const nwRegion = qt.retrieve(aabb(500, 500, 200, 150));
+    expect(nwRegion).toContain(obj1);
+    // obj3 at (850,750) is in SE child, outside NW query region
+    expect(nwRegion).not.toContain(obj3);
+  });
+});

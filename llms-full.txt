@@ -156,6 +156,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`insert()` input validation** — `insert()` now throws `QuadtreeError`
+  when the inserted object contains a non-finite coordinate (`NaN`,
+  `Infinity`, `-Infinity` in any of `x`, `y`, `width`, `height`) or a
+  negative dimension (`width < 0` or `height < 0`). Previously, such
+  objects were silently mishandled (kept before subdivide, silently dropped
+  after). Zero-extent objects (points / lines with `width=0` and/or
+  `height=0`) remain valid and are not rejected. The `QuadtreeError`
+  JSDoc already noted this use was reserved; the behaviour is now
+  implemented and documented in `STABILITY.md`.
+
+### Tests
+
+- Added J-group (J1–J15): `insert()` throws `QuadtreeError` for
+  `width<0`, `height<0`, `NaN`/`Infinity` in any of `x/y/width/height`, and
+  for `null`/`undefined` objects (J14/J15); valid zero-extent objects
+  (width=0, height=0, mixed) are accepted.
+- Added K-group (K1–K7): oversized object appears exactly once in
+  full-region and per-quadrant sub-queries after subdivide; `retrieveInto`
+  buffer identity preserved across 60 clear+insert+retrieveInto frames;
+  negative-origin bounds with negative-coord objects and queries; zero-
+  extent point at a non-midpoint survives deep subdivision (maxLevels=4)
+  and is retrievable with a tight region; maxLevels=1 with many same-
+  quadrant objects — all retrievable, zero duplicates; non-origin bounds
+  insert+retrieve correctness.
+
 ## [0.4.0] - 2026-05-29
 
 Dependency hygiene + stability freeze. **No runtime API addition or behaviour

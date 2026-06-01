@@ -63,6 +63,10 @@ export interface Quadtree<T extends AABB> {
    * Insert an object. The same object reference may legitimately appear
    * in multiple leaf nodes when it spans quadrant boundaries; `retrieve()`
    * deduplicates with a `Set` so the caller sees it exactly once.
+   *
+   * @throws {@link QuadtreeError} if any of `x`, `y`, `width`, or `height`
+   *   is non-finite (`NaN`, `Infinity`, `-Infinity`), or if `width` or
+   *   `height` is negative. Zero-extent objects (points / lines) are valid.
    */
   insert(obj: T): void;
 
@@ -122,9 +126,10 @@ export interface Quadtree<T extends AABB> {
 }
 
 /**
- * Recoverable quadtree error — currently unused at the public surface, but
- * reserved for future precondition violations (e.g. an inserted object with
- * `NaN` coordinates or negative `width`).
+ * Recoverable quadtree error — thrown by `createQuadtree` for invalid
+ * construction options and by `insert()` for precondition violations
+ * (e.g. an inserted object with non-finite coordinates or negative
+ * `width` / `height`).
  *
  * @public
  */
@@ -321,6 +326,23 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
 
   function insert(obj: T): void {
     ck();
+    if (
+      !obj ||
+      !Number.isFinite(obj.x) ||
+      !Number.isFinite(obj.y) ||
+      !Number.isFinite(obj.width) ||
+      !Number.isFinite(obj.height)
+    ) {
+      throw new QuadtreeError(
+        "inserted object must be defined with finite numeric x, y, width and height",
+      );
+    }
+    if (obj.width < 0) {
+      throw new QuadtreeError("inserted object width must be >= 0");
+    }
+    if (obj.height < 0) {
+      throw new QuadtreeError("inserted object height must be >= 0");
+    }
     insertNode(state.root, obj, state.maxObjects, state.maxLevels);
   }
 

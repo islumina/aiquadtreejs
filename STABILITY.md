@@ -19,7 +19,7 @@ bump (v1.0.0+).
 - `Quadtree<T extends AABB>` — the tree interface (`insert` / `retrieve` / `retrieveInto` / `clear` / `dispose` / `disposed`)
 - `AABB` — `{ x, y, width, height }`, right-open semantics
 - `QuadtreeOptions` — `{ bounds, maxObjects?, maxLevels? }`
-- `QuadtreeError` — thrown by validation failures in `createQuadtree`
+- `QuadtreeError` — thrown by validation failures in `createQuadtree` and by `insert()` for invalid object geometry (non-finite coordinates, negative width/height)
 - `QuadtreeDisposedError` — thrown by any method on a disposed tree
 
 ### `Quadtree<T>` interface
@@ -40,6 +40,10 @@ bump (v1.0.0+).
 - Right-open AABB: `x + width` and `y + height` are exclusive
   (renderer-neutral; matches common conventions such as PixiJS
   `getBounds()`).
+- `insert()` validates the inserted object: throws `QuadtreeError` if any
+  of `x`, `y`, `width`, or `height` is non-finite (`NaN`, `Infinity`,
+  `-Infinity`), or if `width` or `height` is negative. Zero-extent objects
+  (points with `width=0` and/or `height=0`) are valid and accepted.
 - `dispose()` is idempotent; subsequent public-method calls throw
   `QuadtreeDisposedError`.
 - All methods destructure cleanly: `const { insert } = qt; insert(obj)`
