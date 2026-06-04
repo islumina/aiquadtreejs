@@ -10,7 +10,7 @@
 
 Part of the [ai\*js micro-runtime ecosystem](https://github.com/yshengliao) — see also [aifsmjs](https://github.com/yshengliao/aifsmjs) (FSM), [aiecsjs](https://github.com/yshengliao/aiecsjs) (ECS), [aibridgejs](https://github.com/yshengliao/aibridgejs) (cross-context RPC), [aieventjs](https://github.com/yshengliao/aieventjs) (event emitter), [aipooljs](https://github.com/yshengliao/aipooljs) (object pool), and [aiaudiojs](https://github.com/yshengliao/aiaudiojs) (Web Audio shell).
 
-> **Status: 0.4.0 published.** Dependency hygiene + 1.0-track stability freeze — no runtime API change. `retrieveInto(region, target)` is a steady-state zero-allocation broadphase (reused internal scratch + caller buffer); property-based dedup invariants. ≥95% coverage, ≤2 KB gzip.
+> **Status: 0.5.1 published.** `insert()` now validates object geometry (non-finite coords, negative dimensions throw `QuadtreeError`); 22 new tests (J/K groups). `retrieveInto(region, target)` is a steady-state zero-allocation broadphase (reused internal scratch + caller buffer); property-based dedup invariants. ≥95% coverage, ≤2 KB gzip.
 
 ---
 
@@ -123,6 +123,7 @@ Full JSDoc lives in [`src/index.ts`](src/index.ts).
 | **0.1.0**  | `createQuadtree`, `insert` / `retrieve` / `clear` / `dispose`, Set-based dedup, ≥95% coverage, ≤2 KB gzip.                              |
 | **0.3.0**  | `retrieveInto(region, target)` zero-alloc API; property-based tests (`fast-check`); STABILITY.md tracking.                            |
 | **0.4.0**  | Dependency hygiene (removed unused `tsx`, aligned `fast-check`); 0.3.x public surface frozen for the 1.x track. No runtime API change.                |
+| **0.5.1**  | `insert()` input validation: throws `QuadtreeError` for non-finite coords or negative dimensions; 22 new tests (J1–J15, K1–K7).       |
 | **0.6+**   | Evaluate 3D octree variant (`createOctree<T extends AABB3>`); see `STABILITY.md` for current draft.                                  |
 
 ---

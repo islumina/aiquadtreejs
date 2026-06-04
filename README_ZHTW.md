@@ -10,13 +10,13 @@
 
 隸屬 [ai\*js micro-runtime 生態系](https://github.com/yshengliao) ─ 另見 [aifsmjs](https://github.com/yshengliao/aifsmjs)（FSM）、[aiecsjs](https://github.com/yshengliao/aiecsjs)（ECS）、[aibridgejs](https://github.com/yshengliao/aibridgejs)（cross-context RPC）、[aieventjs](https://github.com/yshengliao/aieventjs)（event emitter）、[aipooljs](https://github.com/yshengliao/aipooljs)（物件池）、[aiaudiojs](https://github.com/yshengliao/aiaudiojs)（Web Audio 薄殼）。
 
-> **狀態：0.4.0 已發佈。** Dependency hygiene + 1.0-track 穩定凍結 — 無 runtime API 變動。`retrieveInto(region, target)` 為 steady-state 零分配 broadphase（內部 scratch 重用 + caller buffer）與 property-based 去重不變式。≥95% coverage，≤2 KB gzip。
+> **狀態：0.5.1 已發佈。** `insert()` 現在驗證物件幾何（非 finite 座標或負維度拋出 `QuadtreeError`）；22 項新測試（J/K 組）。`retrieveInto(region, target)` 為 steady-state 零分配 broadphase（內部 scratch 重用 + caller buffer）與 property-based 去重不變式。≥95% coverage，≤2 KB gzip。
 
 ---
 
 ## 為什麼有 aiquadtreejs
 
-對 `N` 個 entity 做 N² 兩兩碰撞比對，1,000 個 entity 就是百萬次比對，在 60 Hz 已經吃光預算；10,000 個 entity 直接破表。Quadtree 把那個密集外層 loop 換成空間過濾器：每個 entity 問「我可能會撞到誰？」，樹回傳一個小的候選集，平均 `O(log N)`。精確碰撞測試只跑在候選上，實際比較數量降一到兩個量級。
+對 `N` 個 entity 做 N² 兩兩碰撞比對，1,000 個 entity 就是百萬次比對，在 60 Hz 已經吃光預算；10,000 個 entity 直接破表。Quadtree 把那個密集外層 loop 換成空間過濾器：每個 entity 問「我可能會撞到誰？」，樹回傳一個小的候選集，分布均勻時平均次線性（最壞 `O(N)`，當所有物件都與查詢區域重疊時）。精確碰撞測試只跑在候選上，實際比較數量降一到兩個量級。
 
 `aiquadtreejs` 刻意做這四個取捨：
 
@@ -123,6 +123,7 @@ function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<T>;
 | **0.1.0**  | `createQuadtree`、`insert` / `retrieve` / `clear` / `dispose`、Set 去重、≥95% coverage、≤2 KB gzip。                                     |
 | **0.3.0**  | `retrieveInto(region, target)` 零分配 API；property-based 測試（`fast-check`）；`STABILITY.md` API 穩定度追蹤。                           |
 | **0.4.0**  | 依賴 hygiene（移除未用 `tsx`、對齊 `fast-check`）；0.3.x public surface 凍結為 1.x track。無 runtime API 變動。                                          |
+| **0.5.1**  | `insert()` 輸入驗證：非 finite 座標或負維度拋出 `QuadtreeError`；22 項新測試（J1–J15、K1–K7）。                                          |
 | **0.6+**   | 評估 3D octree 變體（`createOctree<T extends AABB3>`）；現有草稿見 `STABILITY.md`。                                                       |
 
 ---

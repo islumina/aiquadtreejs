@@ -1,6 +1,6 @@
 // aiquadtreejs — 2D quadtree for per-frame rebuild collision broadphase.
 //
-// v0.1.0: full implementation. Plain-object nodes, iterative-DFS retrieve,
+// v0.5.1: full implementation. Plain-object nodes, iterative-DFS retrieve,
 // Set-based dedup, idempotent dispose, destructurable methods (no `this`).
 
 /**
