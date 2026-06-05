@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-06-05
+
+### Docs
+
+- Review-driven documentation fixes (`README.md`, `README_ZHTW.md`, `llms-full.txt`) and corrected a stale version reference in the `src/index.ts` header comment. No functional change; `dist` byte-identical to 0.5.1.
+
 ## [0.5.1] - 2026-06-02
 
 ### Fixed
