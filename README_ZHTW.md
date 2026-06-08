@@ -1,14 +1,14 @@
 # aiquadtreejs
 
 [![npm version](https://img.shields.io/npm/v/aiquadtreejs.svg)](https://www.npmjs.com/package/aiquadtreejs)
-[![CI](https://github.com/yshengliao/aiquadtreejs/actions/workflows/ci.yml/badge.svg)](https://github.com/yshengliao/aiquadtreejs/actions/workflows/ci.yml)
+[![CI](https://github.com/islumina/aiquadtreejs/actions/workflows/ci.yml/badge.svg)](https://github.com/islumina/aiquadtreejs/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
 [![AI Generated](https://img.shields.io/badge/AI_Generated-Claude_Code_Opus_4.7_Max-blueviolet.svg)](https://www.anthropic.com/claude-code)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
 
 > 一個小型 2D quadtree，給 per-frame rebuild 的碰撞 broadphase 使用。`insert` AABB、`retrieve` 候選、`clear`，精確碰撞測試由呼叫方負責。瞄準 PixiJS 遊戲 500–10,000 個 active entity 的場景。
 
-隸屬 [ai\*js micro-runtime 生態系](https://github.com/yshengliao) ─ 另見 [aifsmjs](https://github.com/yshengliao/aifsmjs)（FSM）、[aiecsjs](https://github.com/yshengliao/aiecsjs)（ECS）、[aibridgejs](https://github.com/yshengliao/aibridgejs)（cross-context RPC）、[aieventjs](https://github.com/yshengliao/aieventjs)（event emitter）、[aipooljs](https://github.com/yshengliao/aipooljs)（物件池）、[aiaudiojs](https://github.com/yshengliao/aiaudiojs)（Web Audio 薄殼）。
+隸屬 [ai\*js micro-runtime 生態系](https://github.com/islumina) ─ 另見 [aifsmjs](https://github.com/islumina/aifsmjs)（FSM）、[aiecsjs](https://github.com/islumina/aiecsjs)（ECS）、[aibridgejs](https://github.com/islumina/aibridgejs)（cross-context RPC）、[aieventjs](https://github.com/islumina/aieventjs)（event emitter）、[aipooljs](https://github.com/islumina/aipooljs)（物件池）、[aiaudiojs](https://github.com/islumina/aiaudiojs)（Web Audio 薄殼）。
 
 > **狀態：0.5.1 已發佈。** `insert()` 現在驗證物件幾何（非 finite 座標或負維度拋出 `QuadtreeError`）；22 項新測試（J/K 組）。`retrieveInto(region, target)` 為 steady-state 零分配 broadphase（內部 scratch 重用 + caller buffer）與 property-based 去重不變式。≥95% coverage，≤2 KB gzip。
 
@@ -27,7 +27,7 @@
 
 那為什麼不直接用 `@timohausmann/quadtree-ts`？它做得很好，獨立場景直接用沒問題。`aiquadtreejs` 存在的理由是讓 ai*js stack 能直接接 `aiecsjs` 的 entity ID，不必每 frame 再轉一次物件 ── `insert({ id: eid, x, y, width, height })` 直接對齊你已經維護的 SoA 欄位。
 
-> `aiquadtreejs` 是 v0.3 cycle 四個新加入兄弟套件之一 ── 另外三個是 [aipooljs](https://github.com/yshengliao/aipooljs)（物件池）、`aieventjs`（typed event；**自寫不 fork mitt**）、`aiaudiojs`（Web Audio 薄殼，底層用 Howler.js 作 `peerDependency`）。
+> `aiquadtreejs` 是 v0.3 cycle 四個新加入兄弟套件之一 ── 另外三個是 [aipooljs](https://github.com/islumina/aipooljs)（物件池）、`aieventjs`（typed event；**自寫不 fork mitt**）、`aiaudiojs`（Web Audio 薄殼，底層用 Howler.js 作 `peerDependency`）。
 
 ---
 
