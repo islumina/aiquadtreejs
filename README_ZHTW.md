@@ -10,7 +10,7 @@
 
 隸屬 [ai\*js micro-runtime 生態系](https://github.com/islumina) ─ 另見 [aifsmjs](https://github.com/islumina/aifsmjs)（FSM）、[aiecsjs](https://github.com/islumina/aiecsjs)（ECS）、[aibridgejs](https://github.com/islumina/aibridgejs)（cross-context RPC）、[aieventjs](https://github.com/islumina/aieventjs)（event emitter）、[aipooljs](https://github.com/islumina/aipooljs)（物件池）、[aiaudiojs](https://github.com/islumina/aiaudiojs)（Web Audio 薄殼）。
 
-> **狀態：0.5.5。** `insert()` 與 `retrieve()` / `retrieveInto()` 驗證幾何（非 finite 座標或負維度拋出 `QuadtreeError`）。`retrieveInto(region, target)` 為 steady-state 零分配 broadphase（內部 scratch 重用 + caller buffer）與 property-based 去重不變式。≥95% coverage，≤2 KB gzip。
+> **狀態：0.5.6。** `insert()` 與 `retrieve()` / `retrieveInto()` 驗證幾何（非 finite 座標或負維度拋出 `QuadtreeError`）。`retrieveInto(region, target)` 為 steady-state 零分配 broadphase（內部 scratch 重用 + caller buffer）與 property-based 去重不變式。≥95% coverage，≤2 KB gzip。
 
 ---
 

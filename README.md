@@ -10,7 +10,7 @@
 
 Part of the [ai\*js micro-runtime ecosystem](https://github.com/islumina) — see also [aifsmjs](https://github.com/islumina/aifsmjs) (FSM), [aiecsjs](https://github.com/islumina/aiecsjs) (ECS), [aibridgejs](https://github.com/islumina/aibridgejs) (cross-context RPC), [aieventjs](https://github.com/islumina/aieventjs) (event emitter), [aipooljs](https://github.com/islumina/aipooljs) (object pool), and [aiaudiojs](https://github.com/islumina/aiaudiojs) (Web Audio shell).
 
-> **Status: 0.5.5.** `insert()` and `retrieve()` / `retrieveInto()` validate geometry (non-finite coords or negative dimensions throw `QuadtreeError`). `retrieveInto(region, target)` is a steady-state zero-allocation broadphase (reused internal scratch + caller buffer); property-based dedup invariants. ≥95% coverage, ≤2 KB gzip.
+> **Status: 0.5.6.** `insert()` and `retrieve()` / `retrieveInto()` validate geometry (non-finite coords or negative dimensions throw `QuadtreeError`). `retrieveInto(region, target)` is a steady-state zero-allocation broadphase (reused internal scratch + caller buffer); property-based dedup invariants. ≥95% coverage, ≤2 KB gzip.
 
 ---
 

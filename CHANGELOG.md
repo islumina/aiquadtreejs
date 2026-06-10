@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-06-10
+
+### Fixed
+
+- **`retrieve()` / `retrieveInto()` region validation** — both now throw `QuadtreeError` on non-finite coordinates (`NaN`, `±Infinity`) or negative dimensions, mirroring the `insert()` validation shipped in 0.5.1. Previously a `NaN` region silently returned `[]` and a negative-size region produced ghost candidates. Zero-extent regions remain valid. (Review wave 2026-06-10, QDT-S-01.)
+- `clear()` now drains the internal dedup scratch and DFS stack, extending the GC guarantee `dispose()` already provided: a tree held alive but not queried after `clear()` no longer pins the previous query's object references. (QDT-B-01.)
+- `retrieveSet` snapshots the query region's fields once into a reusable internal scratch region, so a structurally-typed region with re-entrant getters cannot corrupt a walk in progress; steady-state queries remain zero-allocation. (QDT-B-02.)
+
+### Changed
+
+- Supply-chain and release hardening: CI/publish actions SHA-pinned, npm CLI pinned (`11.16.0`) in the OIDC publish job, `permissions: contents: read` on CI, job timeouts, tag↔package.json version guard, `npm publish --ignore-scripts`, and manual publish dispatch now defaults to dry-run. New `verify:docs` gate keeps the README status banners in lockstep with `package.json`. `typecheck` now also type-checks the test suite; `llms-full.txt` embeds `STABILITY.md`.
+
+### Docs
+
+- README status banners refreshed (EN + ZHTW); `maxLevels` JSDoc/README now document the ~4^L spanning-replication cost trade-off; two steady-state test assertions strengthened from lower bounds to exact counts.
+
 ## [0.5.5] - 2026-06-08
 
 ### Changed
