@@ -880,3 +880,79 @@ describe("K. Non-origin bounds", () => {
     expect(nwRegion).not.toContain(obj3);
   });
 });
+
+// ---------------------------------------------------------------------------
+// L. retrieve / retrieveInto adversarial region validation (QDT-S-01 / QDT-T-01)
+// ---------------------------------------------------------------------------
+
+describe("L. retrieve / retrieveInto adversarial region validation", () => {
+  it("L1. retrieve with NaN x throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(Number.NaN, 0, 100, 100))).toThrow(QuadtreeError);
+  });
+
+  it("L2. retrieve with NaN y throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(0, Number.NaN, 100, 100))).toThrow(QuadtreeError);
+  });
+
+  it("L3. retrieve with NaN width throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(0, 0, Number.NaN, 100))).toThrow(QuadtreeError);
+  });
+
+  it("L4. retrieve with NaN height throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(0, 0, 100, Number.NaN))).toThrow(QuadtreeError);
+  });
+
+  it("L5. retrieve with Infinity x throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(Number.POSITIVE_INFINITY, 0, 100, 100))).toThrow(QuadtreeError);
+  });
+
+  it("L6. retrieve with -Infinity y throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(0, Number.NEGATIVE_INFINITY, 100, 100))).toThrow(QuadtreeError);
+  });
+
+  it("L7. retrieve with negative width throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(100, 100, -1, 100))).toThrow(QuadtreeError);
+  });
+
+  it("L8. retrieve with negative height throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(100, 100, 100, -1))).toThrow(QuadtreeError);
+  });
+
+  it("L9. retrieveInto with NaN x throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const buf: AABB[] = [];
+    expect(() => qt.retrieveInto(aabb(Number.NaN, 0, 100, 100), buf)).toThrow(QuadtreeError);
+  });
+
+  it("L10. retrieveInto with Infinity width throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const buf: AABB[] = [];
+    expect(() =>
+      qt.retrieveInto(aabb(0, 0, Number.POSITIVE_INFINITY, 100), buf),
+    ).toThrow(QuadtreeError);
+  });
+
+  it("L11. retrieveInto with negative height throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const buf: AABB[] = [];
+    expect(() => qt.retrieveInto(aabb(0, 0, 100, -5), buf)).toThrow(QuadtreeError);
+  });
+
+  it("L12. retrieve with zero width (zero-extent region) is valid — does not throw", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(50, 50, 0, 100))).not.toThrow();
+  });
+
+  it("L13. retrieve with zero height (zero-extent region) is valid — does not throw", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(50, 50, 100, 0))).not.toThrow();
+  });
+});

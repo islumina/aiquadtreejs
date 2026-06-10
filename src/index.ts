@@ -74,6 +74,11 @@ export interface Quadtree<T extends AABB> {
    * Return every inserted object whose containing node overlaps `region`,
    * deduplicated. The result is a **broadphase**: callers must still run
    * a precise AABB or pixel-level hit test on each candidate.
+   *
+   * @throws {@link QuadtreeError} if any of `region.x`, `region.y`,
+   *   `region.width`, or `region.height` is non-finite (`NaN`, `Infinity`,
+   *   `-Infinity`), or if `region.width` or `region.height` is negative.
+   *   Zero-extent regions are valid (they still query any overlapping node).
    */
   retrieve(region: AABB): T[];
 
@@ -102,6 +107,11 @@ export interface Quadtree<T extends AABB> {
    * of a fresh array. The first calls may grow the internal scratch; once
    * result sizes stabilise, allocation amortises to zero — the design goal
    * for per-frame broadphase loops issuing thousands of queries.
+   *
+   * @throws {@link QuadtreeError} if any of `region.x`, `region.y`,
+   *   `region.width`, or `region.height` is non-finite (`NaN`, `Infinity`,
+   *   `-Infinity`), or if `region.width` or `region.height` is negative.
+   *   Zero-extent regions are valid.
    */
   retrieveInto(region: AABB, target: T[]): T[];
 
@@ -367,13 +377,40 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
     return scratchSet;
   }
 
+  /**
+   * Validate a region AABB for use in retrieve / retrieveInto.
+   * Mirrors insert()'s 0.5.1 validation: non-finite coordinates or negative
+   * dimensions throw QuadtreeError with an `aiquadtreejs: ` prefix message.
+   */
+  function validateRegion(region: AABB): void {
+    if (
+      !region ||
+      !Number.isFinite(region.x) ||
+      !Number.isFinite(region.y) ||
+      !Number.isFinite(region.width) ||
+      !Number.isFinite(region.height)
+    ) {
+      throw new QuadtreeError(
+        "aiquadtreejs: retrieve region must have finite numeric x, y, width and height",
+      );
+    }
+    if (region.width < 0) {
+      throw new QuadtreeError("aiquadtreejs: retrieve region width must be >= 0");
+    }
+    if (region.height < 0) {
+      throw new QuadtreeError("aiquadtreejs: retrieve region height must be >= 0");
+    }
+  }
+
   function retrieve(region: AABB): T[] {
     ck();
+    validateRegion(region);
     return Array.from(retrieveSet(region));
   }
 
   function retrieveInto(region: AABB, target: T[]): T[] {
     ck();
+    validateRegion(region);
     const set = retrieveSet(region);
     target.length = 0;
     for (const v of set) target.push(v);
