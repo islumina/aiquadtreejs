@@ -23,7 +23,7 @@ The short index lives at `llms.txt` (see https://llmstxt.org/).
 
 Part of the [ai\*js micro-runtime ecosystem](https://github.com/islumina) — see also [aifsmjs](https://github.com/islumina/aifsmjs) (FSM), [aiecsjs](https://github.com/islumina/aiecsjs) (ECS), [aibridgejs](https://github.com/islumina/aibridgejs) (cross-context RPC), [aieventjs](https://github.com/islumina/aieventjs) (event emitter), [aipooljs](https://github.com/islumina/aipooljs) (object pool), and [aiaudiojs](https://github.com/islumina/aiaudiojs) (Web Audio shell).
 
-> **Status: 0.5.1 published.** `insert()` now validates object geometry (non-finite coords, negative dimensions throw `QuadtreeError`); 22 new tests (J/K groups). `retrieveInto(region, target)` is a steady-state zero-allocation broadphase (reused internal scratch + caller buffer); property-based dedup invariants. ≥95% coverage, ≤2 KB gzip.
+> **Status: 0.5.5.** `insert()` and `retrieve()` / `retrieveInto()` validate geometry (non-finite coords or negative dimensions throw `QuadtreeError`). `retrieveInto(region, target)` is a steady-state zero-allocation broadphase (reused internal scratch + caller buffer); property-based dedup invariants. ≥95% coverage, ≤2 KB gzip.
 
 ---
 
@@ -107,7 +107,9 @@ interface AABB {
 interface QuadtreeOptions {
   bounds: AABB;
   maxObjects?: number;   // default 10
-  maxLevels?: number;    // default 4
+  maxLevels?: number;    // default 4 — spanning objects replicate into every
+                         // overlapping child; cost is ~4^L nodes in the worst
+                         // case. Raise with caution (16 → ~4 B nodes).
 }
 
 interface Quadtree<T extends AABB> {
@@ -345,6 +347,125 @@ No runtime / source / API changes from 0.1.0. **0.1.1 is also the first version 
 - Publish workflow exists but trigger is `workflow_dispatch` only — no
   accidental npm release on tag push until 0.1.0.
 
+
+---
+
+<!-- ===== STABILITY.md ===== -->
+
+# aiquadtreejs Stability
+
+This document tracks which public API is **stable** (subject to
+semver-major break only) vs **experimental** (subject to change without
+notice). Consumers should treat anything outside the Stable section as
+unfit for production reliance.
+
+---
+
+## Stable
+
+The following are stable (since v0.3.0) and, as of **v0.4.0**, formally
+**frozen for the 1.x track** — they will not break before a major version
+bump (v1.0.0+).
+
+### Exports
+
+- `createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<T>`
+- `Quadtree<T extends AABB>` — the tree interface (`insert` / `retrieve` / `retrieveInto` / `clear` / `dispose` / `disposed`)
+- `AABB` — `{ x, y, width, height }`, right-open semantics
+- `QuadtreeOptions` — `{ bounds, maxObjects?, maxLevels? }`
+- `QuadtreeError` — thrown by validation failures in `createQuadtree` and by `insert()` for invalid object geometry (non-finite coordinates, negative width/height)
+- `QuadtreeDisposedError` — thrown by any method on a disposed tree
+
+### `Quadtree<T>` interface
+
+| Member | Stability | Since |
+|---|---|---|
+| `insert(obj)` | Stable | 0.1.0 |
+| `retrieve(region)` | Stable | 0.1.0 |
+| `retrieveInto(region, target)` | Stable | 0.3.0 |
+| `clear()` | Stable | 0.1.0 |
+| `dispose()` | Stable | 0.1.0 |
+| `disposed` (readonly) | Stable | 0.1.0 |
+
+### Behaviour guarantees
+
+- Dedup: `retrieve` / `retrieveInto` return each candidate exactly once
+  even if it spans multiple quadrants.
+- Right-open AABB: `x + width` and `y + height` are exclusive
+  (renderer-neutral; matches common conventions such as PixiJS
+  `getBounds()`).
+- `insert()` validates the inserted object: throws `QuadtreeError` if any
+  of `x`, `y`, `width`, or `height` is non-finite (`NaN`, `Infinity`,
+  `-Infinity`), or if `width` or `height` is negative. Zero-extent objects
+  (points with `width=0` and/or `height=0`) are valid and accepted.
+- `retrieve()` and `retrieveInto()` validate the query region with the same
+  rules: non-finite coordinates or negative dimensions throw `QuadtreeError`.
+  Zero-extent regions are valid (they still query any overlapping node).
+- `maxLevels` has no upper-bound cap. Callers that raise it above the default
+  of `4` should be aware that spanning objects (those overlapping multiple
+  quadrant boundaries) are copied into every overlapping child node;
+  worst-case node count is ~4^maxLevels. The default is safe for typical game
+  scenes with 500–10,000 entities.
+- `dispose()` is idempotent; subsequent public-method calls throw
+  `QuadtreeDisposedError`.
+- All methods destructure cleanly: `const { insert } = qt; insert(obj)`
+  works without `this` binding.
+
+---
+
+## Experimental / Draft
+
+These ideas are **not implemented** and have **no source code** in the
+package. They are recorded here so consumers and contributors can see
+the intended direction.
+
+### 3D octree variant (target: v0.6+)
+
+A 3D variant for platformer / 2.5D broadphase queries.
+
+```typescript
+// Draft only — no implementation in v0.3.x.
+interface AABB3 {
+  x: number; y: number; z: number;
+  width: number; height: number; depth: number;
+}
+
+interface Octree<T extends AABB3> {
+  insert(obj: T): void;
+  retrieve(region: AABB3): T[];
+  retrieveInto(region: AABB3, target: T[]): T[];
+  clear(): void;
+  dispose(): void;
+  readonly disposed: boolean;
+}
+
+export function createOctree<T extends AABB3>(opts: {
+  bounds: AABB3;
+  maxObjects?: number;
+  maxLevels?: number;
+}): Octree<T>;
+```
+
+Open questions:
+- Is a 2.5D quadtree with z-binning sufficient for typical platformer
+  collision (likely yes)?
+- Acceptable size increase for the octree path (target ≤ 1500 B gzip
+  additional)?
+
+Implementation is gated on a v0.5+ game actually needing it. Until
+then, consumers requiring 3D broadphase should pull a dedicated
+library (e.g. `octree-ts`).
+
+---
+
+## Out of scope (will not implement)
+
+- Move-tracking (per-frame rebuild via `clear()` + `insert()` is the
+  intended pattern; see README "Why aiquadtreejs").
+- Precise hit-test (broadphase only; caller does narrow-phase).
+- Circle / Line / polygon primitives.
+- Persistence / serialisation.
+- KD-tree / R-tree variants.
 
 ---
 

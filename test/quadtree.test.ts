@@ -124,8 +124,9 @@ describe("B. insert + retrieve basics", () => {
     }
     // All those objects are still retrievable
     const result = qt.retrieve(aabb(0, 0, 128, 128));
-    // 20 identical references dedup to 1 in Set
-    expect(result.length).toBeGreaterThanOrEqual(1);
+    // 20 distinct references (each aabb() call creates a new object); Set
+    // does not dedup them — result must be exactly 20, not ≥ 1.
+    expect(result.length).toBe(20);
   });
 
   it("B6. retrieve returns a fresh Array each call (not a shared buffer)", () => {
@@ -283,6 +284,28 @@ describe("E. clear", () => {
     const result = qt.retrieve(aabb(0, 0, 100, 100));
     expect(result).toContain(newObj);
     expect(result).toHaveLength(1);
+  });
+
+  it("E4. clear() drains internal scratch — subsequent retrieveInto on empty tree returns length 0", () => {
+    // Regression guard for QDT-B-01: clear() must drain scratchSet/scratchStack
+    // so that a tree held alive but never queried after clear() does not pin
+    // the previous query's object references.
+    // Verify by: insert objects, query (fills scratch), clear(), query again
+    // with a no-overlap region — result must be empty (scratch was drained).
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const obj = aabb(100, 100, 32, 32);
+    qt.insert(obj);
+    const buf: AABB[] = [];
+    qt.retrieveInto(aabb(0, 0, 800, 600), buf);
+    expect(buf).toContain(obj); // sanity: object was retrievable before clear
+    qt.clear();
+    // After clear, a query for the full region should return empty
+    // because there are no objects in the tree.
+    const buf2: AABB[] = [];
+    qt.retrieveInto(aabb(0, 0, 800, 600), buf2);
+    expect(buf2).toHaveLength(0);
+    // Direct retrieve should also return empty.
+    expect(qt.retrieve(aabb(0, 0, 800, 600))).toHaveLength(0);
   });
 
   it("E3. multiple clear-insert cycles maintain integrity", () => {
@@ -766,8 +789,10 @@ describe("K. retrieveInto zero-alloc steady-state (60-frame loop)", () => {
       // Buffer identity must be preserved every frame
       expect(ret).toBe(buf);
     }
-    // After steady state, buffer length must equal the number of distinct objects
-    expect(buf.length).toBeGreaterThan(0);
+    // After steady state, buffer length must equal the number of distinct
+    // objects inserted per frame (12 new aabb() references per frame, no
+    // modulo wrap for i < 12, so all are distinct — Set keeps all 12).
+    expect(buf.length).toBe(12);
   });
 });
 
@@ -875,5 +900,81 @@ describe("K. Non-origin bounds", () => {
     expect(nwRegion).toContain(obj1);
     // obj3 at (850,750) is in SE child, outside NW query region
     expect(nwRegion).not.toContain(obj3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// L. retrieve / retrieveInto adversarial region validation (QDT-S-01 / QDT-T-01)
+// ---------------------------------------------------------------------------
+
+describe("L. retrieve / retrieveInto adversarial region validation", () => {
+  it("L1. retrieve with NaN x throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(Number.NaN, 0, 100, 100))).toThrow(QuadtreeError);
+  });
+
+  it("L2. retrieve with NaN y throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(0, Number.NaN, 100, 100))).toThrow(QuadtreeError);
+  });
+
+  it("L3. retrieve with NaN width throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(0, 0, Number.NaN, 100))).toThrow(QuadtreeError);
+  });
+
+  it("L4. retrieve with NaN height throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(0, 0, 100, Number.NaN))).toThrow(QuadtreeError);
+  });
+
+  it("L5. retrieve with Infinity x throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(Number.POSITIVE_INFINITY, 0, 100, 100))).toThrow(QuadtreeError);
+  });
+
+  it("L6. retrieve with -Infinity y throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(0, Number.NEGATIVE_INFINITY, 100, 100))).toThrow(QuadtreeError);
+  });
+
+  it("L7. retrieve with negative width throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(100, 100, -1, 100))).toThrow(QuadtreeError);
+  });
+
+  it("L8. retrieve with negative height throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(100, 100, 100, -1))).toThrow(QuadtreeError);
+  });
+
+  it("L9. retrieveInto with NaN x throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const buf: AABB[] = [];
+    expect(() => qt.retrieveInto(aabb(Number.NaN, 0, 100, 100), buf)).toThrow(QuadtreeError);
+  });
+
+  it("L10. retrieveInto with Infinity width throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const buf: AABB[] = [];
+    expect(() => qt.retrieveInto(aabb(0, 0, Number.POSITIVE_INFINITY, 100), buf)).toThrow(
+      QuadtreeError,
+    );
+  });
+
+  it("L11. retrieveInto with negative height throws QuadtreeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const buf: AABB[] = [];
+    expect(() => qt.retrieveInto(aabb(0, 0, 100, -5), buf)).toThrow(QuadtreeError);
+  });
+
+  it("L12. retrieve with zero width (zero-extent region) is valid — does not throw", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(50, 50, 0, 100))).not.toThrow();
+  });
+
+  it("L13. retrieve with zero height (zero-extent region) is valid — does not throw", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    expect(() => qt.retrieve(aabb(50, 50, 100, 0))).not.toThrow();
   });
 });

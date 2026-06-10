@@ -43,6 +43,17 @@ export interface QuadtreeOptions {
   /**
    * Maximum subdivision depth. Default `4`. Caps recursion so a very dense
    * cluster doesn't blow up into an unbounded tree.
+   *
+   * **Spanning-object cost warning:** an object that spans multiple quadrant
+   * boundaries is copied into every child node it overlaps. In the worst case
+   * (an object covering the entire tree bounds) at depth `L`, up to `4^L`
+   * nodes each hold a reference to that object. The default of `4` means at
+   * most 256 leaf nodes; raising `maxLevels` to `10` allows ~1 M nodes, and
+   * `20` allows ~10^12 — **OOM territory for dense inputs with spanning
+   * objects**. Raise this value only when you understand the distribution of
+   * large vs small objects in your scene. No upper-bound cap is applied
+   * (the caller knows their workload); the default `4` is safe for typical
+   * game scenes with 500–10,000 entities.
    */
   maxLevels?: number;
 }
@@ -74,6 +85,11 @@ export interface Quadtree<T extends AABB> {
    * Return every inserted object whose containing node overlaps `region`,
    * deduplicated. The result is a **broadphase**: callers must still run
    * a precise AABB or pixel-level hit test on each candidate.
+   *
+   * @throws {@link QuadtreeError} if any of `region.x`, `region.y`,
+   *   `region.width`, or `region.height` is non-finite (`NaN`, `Infinity`,
+   *   `-Infinity`), or if `region.width` or `region.height` is negative.
+   *   Zero-extent regions are valid (they still query any overlapping node).
    */
   retrieve(region: AABB): T[];
 
@@ -102,6 +118,11 @@ export interface Quadtree<T extends AABB> {
    * of a fresh array. The first calls may grow the internal scratch; once
    * result sizes stabilise, allocation amortises to zero — the design goal
    * for per-frame broadphase loops issuing thousands of queries.
+   *
+   * @throws {@link QuadtreeError} if any of `region.x`, `region.y`,
+   *   `region.width`, or `region.height` is non-finite (`NaN`, `Infinity`,
+   *   `-Infinity`), or if `region.width` or `region.height` is negative.
+   *   Zero-extent regions are valid.
    */
   retrieveInto(region: AABB, target: T[]): T[];
 
@@ -111,6 +132,11 @@ export interface Quadtree<T extends AABB> {
    * time subdivision triggers. The per-frame churn is bounded by
    * `4 * (subdivided-internal-node-count)` and stays well inside V8's
    * young-generation budget for typical game-loop usage.
+   *
+   * Internal scratch buffers (dedup `Set` + DFS stack) are also drained on
+   * clear(), matching the GC guarantee already provided by {@link dispose}.
+   * This ensures a tree held alive but not queried after clear() does not
+   * retain the previous query's object references.
    */
   clear(): void;
 
@@ -350,30 +376,78 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
   // allocate nothing. Safe because the returned Set never escapes the
   // module: retrieve copies it out via Array.from and retrieveInto via a
   // push loop, both synchronously and fully before any subsequent call.
+  //
+  // Plain-data assumption (tightened, QDT-B-02): region.x/y/width/height
+  // are read once into locals at the top of retrieveSet, then written into
+  // the reusable scratchRegion (no per-query allocation — the zero-alloc
+  // contract of retrieveInto holds). This prevents a structurally-typed
+  // region whose getter calls back into retrieve* from corrupting the shared
+  // scratch mid-walk: any re-entrant call triggered by a getter completes
+  // synchronously during the four reads, before this call touches scratch.
+  // Adversarial-only: plain-object callers (all documented examples) are
+  // unaffected.
   const scratchSet = new Set<T>();
   const scratchStack: Node<T>[] = [];
+  const scratchRegion: AABB = { x: 0, y: 0, width: 0, height: 0 };
 
   function retrieveSet(region: AABB): Set<T> {
+    // Snapshot region fields into locals once so that a getter-bearing
+    // region cannot mutate the walk by re-entering retrieve* mid-DFS.
+    const rx = region.x;
+    const ry = region.y;
+    const rw = region.width;
+    const rh = region.height;
+    scratchRegion.x = rx;
+    scratchRegion.y = ry;
+    scratchRegion.width = rw;
+    scratchRegion.height = rh;
     scratchSet.clear();
     scratchStack.length = 0;
     scratchStack.push(state.root);
     while (scratchStack.length > 0) {
       const node = scratchStack.pop();
       if (node === undefined) continue;
-      if (!rectsOverlap(node.bounds, region)) continue;
+      if (!rectsOverlap(node.bounds, scratchRegion)) continue;
       for (const obj of node.objects) scratchSet.add(obj);
       for (const child of node.children) scratchStack.push(child);
     }
     return scratchSet;
   }
 
+  /**
+   * Validate a region AABB for use in retrieve / retrieveInto.
+   * Mirrors insert()'s 0.5.1 validation: non-finite coordinates or negative
+   * dimensions throw QuadtreeError with an `aiquadtreejs: ` prefix message.
+   */
+  function validateRegion(region: AABB): void {
+    if (
+      !region ||
+      !Number.isFinite(region.x) ||
+      !Number.isFinite(region.y) ||
+      !Number.isFinite(region.width) ||
+      !Number.isFinite(region.height)
+    ) {
+      throw new QuadtreeError(
+        "aiquadtreejs: retrieve region must have finite numeric x, y, width and height",
+      );
+    }
+    if (region.width < 0) {
+      throw new QuadtreeError("aiquadtreejs: retrieve region width must be >= 0");
+    }
+    if (region.height < 0) {
+      throw new QuadtreeError("aiquadtreejs: retrieve region height must be >= 0");
+    }
+  }
+
   function retrieve(region: AABB): T[] {
     ck();
+    validateRegion(region);
     return Array.from(retrieveSet(region));
   }
 
   function retrieveInto(region: AABB, target: T[]): T[] {
     ck();
+    validateRegion(region);
     const set = retrieveSet(region);
     target.length = 0;
     for (const v of set) target.push(v);
@@ -383,6 +457,12 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
   function clear(): void {
     ck();
     clearNode(state.root);
+    // Drain internal scratch so that a tree held alive but not queried after
+    // clear() does not pin the previous query's object references against GC.
+    // (dispose() drains scratch for the same reason; clear() now provides the
+    // same guarantee for the per-frame rebuild pattern.)
+    scratchSet.clear();
+    scratchStack.length = 0;
   }
 
   function dispose(): void {
