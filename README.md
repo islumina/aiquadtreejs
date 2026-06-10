@@ -10,7 +10,7 @@
 
 Part of the [ai\*js micro-runtime ecosystem](https://github.com/islumina) — see also [aifsmjs](https://github.com/islumina/aifsmjs) (FSM), [aiecsjs](https://github.com/islumina/aiecsjs) (ECS), [aibridgejs](https://github.com/islumina/aibridgejs) (cross-context RPC), [aieventjs](https://github.com/islumina/aieventjs) (event emitter), [aipooljs](https://github.com/islumina/aipooljs) (object pool), and [aiaudiojs](https://github.com/islumina/aiaudiojs) (Web Audio shell).
 
-> **Status: 0.5.1 published.** `insert()` now validates object geometry (non-finite coords, negative dimensions throw `QuadtreeError`); 22 new tests (J/K groups). `retrieveInto(region, target)` is a steady-state zero-allocation broadphase (reused internal scratch + caller buffer); property-based dedup invariants. ≥95% coverage, ≤2 KB gzip.
+> **Status: 0.5.5.** `insert()` and `retrieve()` / `retrieveInto()` validate geometry (non-finite coords or negative dimensions throw `QuadtreeError`). `retrieveInto(region, target)` is a steady-state zero-allocation broadphase (reused internal scratch + caller buffer); property-based dedup invariants. ≥95% coverage, ≤2 KB gzip.
 
 ---
 
@@ -94,7 +94,9 @@ interface AABB {
 interface QuadtreeOptions {
   bounds: AABB;
   maxObjects?: number;   // default 10
-  maxLevels?: number;    // default 4
+  maxLevels?: number;    // default 4 — spanning objects replicate into every
+                         // overlapping child; cost is ~4^L nodes in the worst
+                         // case. Raise with caution (16 → ~4 B nodes).
 }
 
 interface Quadtree<T extends AABB> {

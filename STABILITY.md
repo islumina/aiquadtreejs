@@ -44,6 +44,14 @@ bump (v1.0.0+).
   of `x`, `y`, `width`, or `height` is non-finite (`NaN`, `Infinity`,
   `-Infinity`), or if `width` or `height` is negative. Zero-extent objects
   (points with `width=0` and/or `height=0`) are valid and accepted.
+- `retrieve()` and `retrieveInto()` validate the query region with the same
+  rules: non-finite coordinates or negative dimensions throw `QuadtreeError`.
+  Zero-extent regions are valid (they still query any overlapping node).
+- `maxLevels` has no upper-bound cap. Callers that raise it above the default
+  of `4` should be aware that spanning objects (those overlapping multiple
+  quadrant boundaries) are copied into every overlapping child node;
+  worst-case node count is ~4^maxLevels. The default is safe for typical game
+  scenes with 500–10,000 entities.
 - `dispose()` is idempotent; subsequent public-method calls throw
   `QuadtreeDisposedError`.
 - All methods destructure cleanly: `const { insert } = qt; insert(obj)`
