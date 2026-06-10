@@ -124,8 +124,9 @@ describe("B. insert + retrieve basics", () => {
     }
     // All those objects are still retrievable
     const result = qt.retrieve(aabb(0, 0, 128, 128));
-    // 20 identical references dedup to 1 in Set
-    expect(result.length).toBeGreaterThanOrEqual(1);
+    // 20 distinct references (each aabb() call creates a new object); Set
+    // does not dedup them — result must be exactly 20, not ≥ 1.
+    expect(result.length).toBe(20);
   });
 
   it("B6. retrieve returns a fresh Array each call (not a shared buffer)", () => {
@@ -766,8 +767,10 @@ describe("K. retrieveInto zero-alloc steady-state (60-frame loop)", () => {
       // Buffer identity must be preserved every frame
       expect(ret).toBe(buf);
     }
-    // After steady state, buffer length must equal the number of distinct objects
-    expect(buf.length).toBeGreaterThan(0);
+    // After steady state, buffer length must equal the number of distinct
+    // objects inserted per frame (12 new aabb() references per frame, no
+    // modulo wrap for i < 12, so all are distinct — Set keeps all 12).
+    expect(buf.length).toBe(12);
   });
 });
 
