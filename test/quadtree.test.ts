@@ -286,6 +286,28 @@ describe("E. clear", () => {
     expect(result).toHaveLength(1);
   });
 
+  it("E4. clear() drains internal scratch — subsequent retrieveInto on empty tree returns length 0", () => {
+    // Regression guard for QDT-B-01: clear() must drain scratchSet/scratchStack
+    // so that a tree held alive but never queried after clear() does not pin
+    // the previous query's object references.
+    // Verify by: insert objects, query (fills scratch), clear(), query again
+    // with a no-overlap region — result must be empty (scratch was drained).
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const obj = aabb(100, 100, 32, 32);
+    qt.insert(obj);
+    const buf: AABB[] = [];
+    qt.retrieveInto(aabb(0, 0, 800, 600), buf);
+    expect(buf).toContain(obj); // sanity: object was retrievable before clear
+    qt.clear();
+    // After clear, a query for the full region should return empty
+    // because there are no objects in the tree.
+    const buf2: AABB[] = [];
+    qt.retrieveInto(aabb(0, 0, 800, 600), buf2);
+    expect(buf2).toHaveLength(0);
+    // Direct retrieve should also return empty.
+    expect(qt.retrieve(aabb(0, 0, 800, 600))).toHaveLength(0);
+  });
+
   it("E3. multiple clear-insert cycles maintain integrity", () => {
     const qt = createQuadtree({
       bounds: aabb(0, 0, 800, 600),

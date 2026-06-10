@@ -121,6 +121,11 @@ export interface Quadtree<T extends AABB> {
    * time subdivision triggers. The per-frame churn is bounded by
    * `4 * (subdivided-internal-node-count)` and stays well inside V8's
    * young-generation budget for typical game-loop usage.
+   *
+   * Internal scratch buffers (dedup `Set` + DFS stack) are also drained on
+   * clear(), matching the GC guarantee already provided by {@link dispose}.
+   * This ensures a tree held alive but not queried after clear() does not
+   * retain the previous query's object references.
    */
   clear(): void;
 
@@ -420,6 +425,12 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
   function clear(): void {
     ck();
     clearNode(state.root);
+    // Drain internal scratch so that a tree held alive but not queried after
+    // clear() does not pin the previous query's object references against GC.
+    // (dispose() drains scratch for the same reason; clear() now provides the
+    // same guarantee for the per-frame rebuild pattern.)
+    scratchSet.clear();
+    scratchStack.length = 0;
   }
 
   function dispose(): void {
