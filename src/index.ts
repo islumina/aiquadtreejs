@@ -378,12 +378,17 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
   // push loop, both synchronously and fully before any subsequent call.
   //
   // Plain-data assumption (tightened, QDT-B-02): region.x/y/width/height
-  // are read once into locals at the top of retrieveSet. This prevents a
-  // structurally-typed region whose getter calls back into retrieve* from
-  // corrupting the shared scratch mid-walk. Adversarial-only: plain-object
-  // callers (all documented examples) are unaffected.
+  // are read once into locals at the top of retrieveSet, then written into
+  // the reusable scratchRegion (no per-query allocation — the zero-alloc
+  // contract of retrieveInto holds). This prevents a structurally-typed
+  // region whose getter calls back into retrieve* from corrupting the shared
+  // scratch mid-walk: any re-entrant call triggered by a getter completes
+  // synchronously during the four reads, before this call touches scratch.
+  // Adversarial-only: plain-object callers (all documented examples) are
+  // unaffected.
   const scratchSet = new Set<T>();
   const scratchStack: Node<T>[] = [];
+  const scratchRegion: AABB = { x: 0, y: 0, width: 0, height: 0 };
 
   function retrieveSet(region: AABB): Set<T> {
     // Snapshot region fields into locals once so that a getter-bearing
@@ -392,14 +397,17 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
     const ry = region.y;
     const rw = region.width;
     const rh = region.height;
-    const localRegion: AABB = { x: rx, y: ry, width: rw, height: rh };
+    scratchRegion.x = rx;
+    scratchRegion.y = ry;
+    scratchRegion.width = rw;
+    scratchRegion.height = rh;
     scratchSet.clear();
     scratchStack.length = 0;
     scratchStack.push(state.root);
     while (scratchStack.length > 0) {
       const node = scratchStack.pop();
       if (node === undefined) continue;
-      if (!rectsOverlap(node.bounds, localRegion)) continue;
+      if (!rectsOverlap(node.bounds, scratchRegion)) continue;
       for (const obj of node.objects) scratchSet.add(obj);
       for (const child of node.children) scratchStack.push(child);
     }
