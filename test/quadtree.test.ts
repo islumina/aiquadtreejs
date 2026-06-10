@@ -957,9 +957,9 @@ describe("L. retrieve / retrieveInto adversarial region validation", () => {
   it("L10. retrieveInto with Infinity width throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
     const buf: AABB[] = [];
-    expect(() =>
-      qt.retrieveInto(aabb(0, 0, Number.POSITIVE_INFINITY, 100), buf),
-    ).toThrow(QuadtreeError);
+    expect(() => qt.retrieveInto(aabb(0, 0, Number.POSITIVE_INFINITY, 100), buf)).toThrow(
+      QuadtreeError,
+    );
   });
 
   it("L11. retrieveInto with negative height throws QuadtreeError", () => {
