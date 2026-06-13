@@ -13,139 +13,81 @@ The short index lives at `llms.txt` (see https://llmstxt.org/).
 
 # aiquadtreejs
 
-[![npm version](https://img.shields.io/npm/v/aiquadtreejs.svg)](https://www.npmjs.com/package/aiquadtreejs)
-[![CI](https://github.com/islumina/aiquadtreejs/actions/workflows/ci.yml/badge.svg)](https://github.com/islumina/aiquadtreejs/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
-[![AI Generated](https://img.shields.io/badge/AI_Generated-Claude_Code_Opus_4.7_Max-blueviolet.svg)](https://www.anthropic.com/claude-code)
-[![繁體中文](https://img.shields.io/badge/lang-繁體中文-red.svg)](README_ZHTW.md)
+Tiny 2D quadtree for per-frame rebuild collision broadphase. Insert AABBs, retrieve candidates, then run precise collision checks yourself.
 
-> A tiny 2D quadtree for per-frame rebuild collision broadphase. `insert` AABBs, `retrieve` candidates, `clear`. Caller does precise hit-testing. Designed for PixiJS games with 500–10,000 active entities.
+> **Status: 0.5.6 - stable 1.0-track surface.** The root entry is the public API.
 
-Part of the [ai\*js micro-runtime ecosystem](https://github.com/islumina) — see also [aifsmjs](https://github.com/islumina/aifsmjs) (FSM), [aiecsjs](https://github.com/islumina/aiecsjs) (ECS), [aibridgejs](https://github.com/islumina/aibridgejs) (cross-context RPC), [aieventjs](https://github.com/islumina/aieventjs) (event emitter), [aipooljs](https://github.com/islumina/aipooljs) (object pool), and [aiaudiojs](https://github.com/islumina/aiaudiojs) (Web Audio shell).
-
-> **Status: 0.5.6.** `insert()` and `retrieve()` / `retrieveInto()` validate geometry (non-finite coords or negative dimensions throw `QuadtreeError`). `retrieveInto(region, target)` is a steady-state zero-allocation broadphase (reused internal scratch + caller buffer); property-based dedup invariants. ≥95% coverage, ≤2 KB gzip.
-
----
-
-## Why aiquadtreejs
-
-Naïve pairwise collision detection on `N` entities is `O(N²)`. At 1,000 entities that's a million comparisons per frame, which at 60 Hz is already a budget killer; at 10,000 entities it's a non-starter. A quadtree replaces the dense outer loop with a spatial filter: each entity asks "who could I possibly collide with?" and the tree returns a small candidate set — sub-linear on average for well-distributed inputs (worst case is `O(N)` when every object overlaps the query region). The precise hit test then runs only on candidates, dropping the actual comparisons by one or two orders of magnitude in typical game distributions.
-
-`aiquadtreejs` makes four deliberate trade-offs:
-
-- **Per-frame rebuild, not move-tracking.** Tracking which leaf an entity migrated into between frames is doable but error-prone; `clear()` + re-`insert()` is faster in practice and easier to reason about. This mirrors the Kontra.js philosophy. (`clear()` resets the root node and drops the child array; subdividing fresh next frame is cheap because the inner subdivision logic touches at most `maxLevels = 4` levels.)
-- **Set-based dedup on `retrieve`.** An AABB that straddles a quadrant boundary lands in multiple leaves. Without dedup the caller sees the same candidate two or four times and pays double for the precise hit test. The Set guarantees each candidate appears once.
-- **2D AABB only — no 3D, no R-tree, no KD-tree, no Circle / Line primitives.** Those are real techniques for real problems but they sit in a different size class. Keep this library at ≤ 2 KB gzipped and let user-land bring in heavier broadphase when needed.
-- **No precise hit-test.** Broadphase libraries that also do collision response always grow. The contract here ends at "here are the candidates"; pixel-perfect or shape-specific tests belong to whatever physics layer you already have.
-
-Why not just import `@timohausmann/quadtree-ts`? That library is solid and you should use it for stand-alone work. `aiquadtreejs` exists so that an ai*js stack can talk to entity IDs from `aiecsjs` without per-frame object adaptation — `insert({ id: eid, x, y, width, height })` lines up with the SoA columns you already maintain.
-
-> `aiquadtreejs` is one of the four 0.3-cycle siblings joining the family — alongside [aipooljs](https://github.com/islumina/aipooljs) (object pool), `aieventjs` (typed events; self-built, not a `mitt` fork), and `aiaudiojs` (Web Audio shell over a Howler.js `peerDependency`).
-
----
-
-## Quick Start
+## Install
 
 ```bash
 pnpm add aiquadtreejs
 ```
 
-```typescript
+```ts
 import { createQuadtree, type AABB } from "aiquadtreejs";
+```
 
-type Body = { id: number } & AABB;
+## Quick Start
 
-// 1. Build the tree once.
-const qt = createQuadtree<Body>({
+```ts
+interface Body extends AABB {
+  id: number;
+}
+
+const tree = createQuadtree<Body>({
   bounds: { x: 0, y: 0, width: 800, height: 600 },
   maxObjects: 10,
   maxLevels: 4,
 });
 
-// 2. Per frame: clear and re-insert.
-function rebuild(entities: Body[]) {
-  qt.clear();
-  for (const e of entities) qt.insert(e);
-}
+const bodies: Body[] = [
+  { id: 1, x: 100, y: 100, width: 32, height: 32 },
+  { id: 2, x: 400, y: 250, width: 32, height: 32 },
+];
 
-// 3. Per query: broadphase, then precise hit-test.
-function nearbyEnemies(player: Body, enemies: Body[]): Body[] {
-  const region: AABB = { x: player.x - 50, y: player.y - 50, width: 100, height: 100 };
-  const candidates = qt.retrieve(region);
-  // Caller filters with precise AABB / pixel test:
-  return candidates.filter((c) => aabbOverlap(c, region));
-}
+tree.clear();
+for (const body of bodies) tree.insert(body);
+
+const candidates = tree.retrieve({ x: 80, y: 80, width: 120, height: 120 });
 ```
 
-Right-open coordinate semantics: `x + width` and `y + height` are exclusive (renderer-neutral; matches common conventions such as PixiJS `getBounds()`).
+## Core API
 
----
+- `createQuadtree<T extends AABB>({ bounds, maxObjects?, maxLevels? })` creates a tree.
+- `insert(obj)` stores an object reference in overlapping nodes.
+- `retrieve(region)` returns a deduplicated broadphase candidate array.
+- `retrieveInto(region, target)` reuses a caller-owned result array.
+- `clear()` empties the tree for the next frame and clears scratch buffers.
+- `dispose()` is idempotent permanent teardown.
+- Errors: `QuadtreeError`, `QuadtreeDisposedError`.
 
-## Capabilities / Limitations
+## Model
 
-| Will do (v1)                                              | Won't do                                              |
-| --------------------------------------------------------- | ----------------------------------------------------- |
-| 2D rectangle quadtree                                     | 3D octree / R-tree / KD-tree                          |
-| `insert()` / `retrieve()` / `clear()` / `dispose()`       | Move-tracking (use `clear()` + re-`insert()`)         |
-| Set-based dedup on `retrieve` (each candidate once)       | Precise hit-test (broadphase only)                    |
-| `maxObjects` + `maxLevels` knobs                          | Auto-rebalance / dynamic depth growth                 |
-| Reuse the root node across frames; resubdivide cheaply    | Circle / Line / polygon primitives                    |
-| `dispose()` idempotent; post-dispose calls throw          | Persistence / snapshot / serialise (out of scope)     |
+- Coordinates are right-open: `{ x, y, width, height }` covers `[x, x + width)` and `[y, y + height)`.
+- This is a broadphase only. Returned candidates may not actually overlap the query region.
+- Expected usage is per-frame rebuild: `clear()`, insert active bodies, query.
+- Objects spanning quadrant boundaries can be stored in multiple child nodes; results are deduplicated.
+- `maxLevels` has no hard cap. Very high values plus spanning objects can create huge node counts.
 
----
+## Sharp Edges
 
-## API sketch
+- Known bug: a zero-size point exactly on the root `left/top` boundary, such as `{ x: bounds.x, y: bounds.y, width: 0, height: 0 }`, is currently ignored by the root overlap check. Zero-size objects away from that root minimum edge are covered by tests. Next code pass should fix the root containment helper and add boundary tests.
+- Fully outside objects are ignored by retrieval.
+- Negative width/height and non-finite coordinates throw.
+- `retrieveInto()` clears the target array before writing results.
+- After `dispose()`, all methods except `dispose()` throw `QuadtreeDisposedError`.
 
-```typescript
-interface AABB {
-  x: number;
-  y: number;
-  width: number;   // x + width is exclusive
-  height: number;  // y + height is exclusive
-}
+## AI Context
 
-interface QuadtreeOptions {
-  bounds: AABB;
-  maxObjects?: number;   // default 10
-  maxLevels?: number;    // default 4 — spanning objects replicate into every
-                         // overlapping child; cost is ~4^L nodes in the worst
-                         // case. Raise with caution (16 → ~4 B nodes).
-}
-
-interface Quadtree<T extends AABB> {
-  insert(obj: T): void;
-  retrieve(region: AABB): T[];
-  retrieveInto(region: AABB, target: T[]): T[];   // ← new in 0.3.0
-  clear(): void;
-  dispose(): void;
-  readonly disposed: boolean;
-}
-
-class QuadtreeError extends Error {}
-class QuadtreeDisposedError extends Error {}
-
-function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<T>;
-```
-
-Full JSDoc lives in [`src/index.ts`](src/index.ts).
-
----
-
-## Roadmap
-
-| Version    | Adds                                                                                                                                  |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **0.1.0**  | `createQuadtree`, `insert` / `retrieve` / `clear` / `dispose`, Set-based dedup, ≥95% coverage, ≤2 KB gzip.                              |
-| **0.3.0**  | `retrieveInto(region, target)` zero-alloc API; property-based tests (`fast-check`); STABILITY.md tracking.                            |
-| **0.4.0**  | Dependency hygiene (removed unused `tsx`, aligned `fast-check`); 0.3.x public surface frozen for the 1.x track. No runtime API change.                |
-| **0.5.1**  | `insert()` input validation: throws `QuadtreeError` for non-finite coords or negative dimensions; 22 new tests (J1–J15, K1–K7).       |
-| **0.6+**   | Evaluate 3D octree variant (`createOctree<T extends AABB3>`); see `STABILITY.md` for current draft.                                  |
-
----
+- Short index: [`llms.txt`](llms.txt)
+- Full generated context: [`llms-full.txt`](llms-full.txt)
+- Stability contract: [`STABILITY.md`](STABILITY.md)
+- Current review backlog: [`REVIEW.md`](REVIEW.md)
+- Release history: [`CHANGELOG.md`](CHANGELOG.md)
 
 ## License
 
-[MIT](LICENSE).
+MIT
 
 ---
 
@@ -153,216 +95,24 @@ Full JSDoc lives in [`src/index.ts`](src/index.ts).
 
 # Changelog
 
-All notable changes to this project are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
-adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+All notable changes to aiquadtreejs are summarized here.
 
 ## [Unreleased]
 
+- Documentation-only slimming pass across README, stability notes, review backlog, and LLM context.
+- Documented the current zero-size root left/top boundary bug for the next code-fix pass.
+
 ## [0.5.6] - 2026-06-10
 
-### Fixed
+- Hardened retrieve validation, scratch cleanup, and size-budget docs.
+- Kept root quadtree API stable and regenerated generated LLM context.
 
-- **`retrieve()` / `retrieveInto()` region validation** — both now throw `QuadtreeError` on non-finite coordinates (`NaN`, `±Infinity`) or negative dimensions, mirroring the `insert()` validation shipped in 0.5.1. Previously a `NaN` region silently returned `[]` and a negative-size region produced ghost candidates. Zero-extent regions remain valid. (Review wave 2026-06-10, QDT-S-01.)
-- `clear()` now drains the internal dedup scratch and DFS stack, extending the GC guarantee `dispose()` already provided: a tree held alive but not queried after `clear()` no longer pins the previous query's object references. (QDT-B-01.)
-- `retrieveSet` snapshots the query region's fields once into a reusable internal scratch region, so a structurally-typed region with re-entrant getters cannot corrupt a walk in progress; steady-state queries remain zero-allocation. (QDT-B-02.)
+## Older releases
 
-### Changed
-
-- Supply-chain and release hardening: CI/publish actions SHA-pinned, npm CLI pinned (`11.16.0`) in the OIDC publish job, `permissions: contents: read` on CI, job timeouts, tag↔package.json version guard, `npm publish --ignore-scripts`, and manual publish dispatch now defaults to dry-run. New `verify:docs` gate keeps the README status banners in lockstep with `package.json`. `typecheck` now also type-checks the test suite; `llms-full.txt` embeds `STABILITY.md`.
-
-### Docs
-
-- README status banners refreshed (EN + ZHTW); `maxLevels` JSDoc/README now document the ~4^L spanning-replication cost trade-off; two steady-state test assertions strengthened from lower bounds to exact counts.
-
-## [0.5.5] - 2026-06-08
-
-### Changed
-
-- Project home migrated to the [`islumina`](https://github.com/islumina) GitHub org; the package is now published from there via npm trusted publisher (OIDC + SLSA provenance). Family-wide version alignment at `0.5.5` — no runtime or API changes.
-
-## [0.5.2] - 2026-06-05
-
-### Docs
-
-- Review-driven documentation fixes (`README.md`, `README_ZHTW.md`, `llms-full.txt`) and corrected a stale version reference in the `src/index.ts` header comment. No functional change; `dist` byte-identical to 0.5.1.
-
-## [0.5.1] - 2026-06-02
-
-### Fixed
-
-- **`insert()` input validation** — `insert()` now throws `QuadtreeError`
-  when the inserted object contains a non-finite coordinate (`NaN`,
-  `Infinity`, `-Infinity` in any of `x`, `y`, `width`, `height`) or a
-  negative dimension (`width < 0` or `height < 0`). Previously, such
-  objects were silently mishandled (kept before subdivide, silently dropped
-  after). Zero-extent objects (points / lines with `width=0` and/or
-  `height=0`) remain valid and are not rejected. The `QuadtreeError`
-  JSDoc already noted this use was reserved; the behaviour is now
-  implemented and documented in `STABILITY.md`.
-
-### Tests
-
-- Added J-group (J1–J15): `insert()` throws `QuadtreeError` for
-  `width<0`, `height<0`, `NaN`/`Infinity` in any of `x/y/width/height`, and
-  for `null`/`undefined` objects (J14/J15); valid zero-extent objects
-  (width=0, height=0, mixed) are accepted.
-- Added K-group (K1–K7): oversized object appears exactly once in
-  full-region and per-quadrant sub-queries after subdivide; `retrieveInto`
-  buffer identity preserved across 60 clear+insert+retrieveInto frames;
-  negative-origin bounds with negative-coord objects and queries; zero-
-  extent point at a non-midpoint survives deep subdivision (maxLevels=4)
-  and is retrievable with a tight region; maxLevels=1 with many same-
-  quadrant objects — all retrievable, zero duplicates; non-origin bounds
-  insert+retrieve correctness.
-
-## [0.4.0] - 2026-05-29
-
-Dependency hygiene + stability freeze. **No runtime API addition or behaviour
-change** — `dist/index.js` is byte-identical to 0.3.1; consumers see no
-difference. This release unifies the ai*js family version line at 0.4.0 and
-formally freezes the public surface for the 1.x track.
-
-### Changed
-
-- **devDependencies** — removed unused `tsx` (no script, config, or example in
-  this package invoked it) and aligned `fast-check` `^3.23.0` → `^4.8.0` to
-  match the rest of the ai*js family. Both are dev-only and absent from the
-  published tarball (`files` ships `dist` + docs only), so consumers are
-  unaffected.
-
-### Stability
-
-- The 0.3.x public surface — `createQuadtree`, the `Quadtree<T>` interface and
-  all its members (`insert` / `retrieve` / `retrieveInto` / `clear` /
-  `dispose` / `disposed`), `AABB`, `QuadtreeOptions`, `QuadtreeError`,
-  `QuadtreeDisposedError` — is declared **frozen for the 1.x track**: it will
-  not break before a 1.0.0+ major. The 3D octree variant remains a draft
-  (target v0.6+).
-
-### Internal (not shipped to npm)
-
-- `pnpm audit` reports no known vulnerabilities; `pnpm-lock.yaml` regenerated
-  after the devDependency changes. Property tests re-run green under
-  fast-check v4.
-
-## [0.3.1] - 2026-05-29
-
-### Changed
-
-- **`retrieveInto` is now genuinely zero-allocation in steady state.** The
-  internal dedup `Set` and DFS stack are hoisted to the tree instance and
-  reused across calls (cleared, not re-created) instead of being allocated
-  per query. Combined with the caller-owned `target` buffer, a per-frame
-  broadphase loop issuing thousands of `retrieveInto` queries now allocates
-  nothing once result sizes stabilise — the design goal stated in 0.3.0.
-  Purely internal: no API, signature, or observable-behaviour change.
-  `retrieve` still returns a fresh array each call.
-- **`dispose()`** now also clears the internal scratch, preserving the
-  "drops references so the GC can reclaim everything" guarantee.
-- **Docs** — `AABB` JSDoc leads with a renderer-neutral right-open
-  definition (PixiJS `getBounds()` demoted to a compatibility note);
-  `dispose()` JSDoc now lists `retrieveInto` among the post-dispose
-  throwers; the 0.3.0 changelog note reworded ("observationally identical"
-  rather than "byte-for-byte"); `STABILITY.md` exports list now includes
-  the `Quadtree<T>` interface.
-
-### Internal (not shipped to npm)
-
-- Property test `prop2` uses `fc.uniqueArray` keyed on `id` instead of an
-  early-return guard that skipped ~39% of runs on id collisions; the
-  id-uniqueness invariant now runs on every case. Property generators mix
-  in zero-extent midpoint points (`fc.oneof`) so the dedup invariants
-  exercise the G4 regression shape, not just deterministic fixtures.
-- Tightened `I4` (`toBe(1)`); added `I13` (retrieve fresh-array vs
-  retrieveInto buffer-reuse contrast — backward-compat lock) and `I14`
-  (interleaved retrieve / retrieveInto correctness — shared-scratch guard).
-
-### Notes
-
-- `dist/index.js` runtime differs from 0.3.0 only by the scratch-hoist
-  optimisation; the public API and all observable behaviour are unchanged.
-
-## [0.3.0] - 2026-05-29
-
-### Added
-
-- **`retrieveInto(region: AABB, target: T[]): T[]`** — zero-allocation
-  variant of `retrieve` for hot-path callers. Clears `target`, walks
-  the same iterative DFS + Set dedup as `retrieve`, writes results
-  into `target`, returns `target`. The returned reference equals the
-  argument — callers can hold a permanent buffer and pass it every
-  frame to eliminate the result-array allocation churn (5,000+ calls
-  per frame in typical bullet-hell broadphase loops).
-- **`STABILITY.md`** — explicit stable vs experimental API tracking.
-  Includes a v0.6+ 3D octree draft (no source code in this release).
-- **Property-based tests** via `fast-check` — 4 invariants covering
-  `retrieve` dedup and `retrieveInto` identity / length / content
-  equivalence. Adds `fast-check` to `devDependencies`.
-
-### Changed
-
-- **`Quadtree.clear` JSDoc** — corrected the claim that "internal
-  node objects are reused across frames"; only the root node is
-  reused, child nodes are released on `clear()` and re-created when
-  subdivision next triggers. No runtime behaviour change.
-- **README Roadmap / Status / API sketch** — synced to v0.3.0,
-  including the `retrieveInto(region, target)` signature (the
-  pre-0.2 Roadmap entry was a single-argument draft).
-
-### Notes
-
-- `retrieve` behaviour is observationally identical to 0.1.1: the
-  internal refactor extracts a shared `retrieveSet` helper that both
-  `retrieve` and `retrieveInto` call, but `Set` insertion order →
-  `Array.from` order is preserved by spec.
-- Bundle size: ≤ 2 KB gzip budget still ~50% headroom after this
-  release (expected ~1050-1090 B gzip).
-
-## [0.1.1] - 2026-05-28
-
-### Changed (CI)
-
-- **`publish.yml` now triggers on `push: tags: ["v*"]`** (was `workflow_dispatch` only). Aligns with the trigger used by `aifsmjs` / `aiecsjs` / `aibridgejs`. Tag push now automatically runs the OIDC trusted publish.
-- **`npm publish --provenance --access public`** — the workflow now emits a [sigstore provenance attestation](https://docs.npmjs.com/generating-provenance-statements) so consumers can verify the tarball was built by this workflow on this commit.
-
-No runtime / source / API changes from 0.1.0. **0.1.1 is also the first version to actually land on npm — 0.1.0 was tagged in git but never published to npm.** Production bundles are byte-identical to the 0.1.0 git tag.
-
-## [0.1.0] - 2026-05-28
-
-### Added
-
-- `createQuadtree({ bounds, maxObjects, maxLevels })` factory — 2D AABB broadphase.
-- `insert(obj)` / `retrieve(region)` / `clear()` / `dispose()` lifecycle.
-- Set-based dedup on `retrieve()` so objects spanning multiple quadrants are returned once.
-- Per-frame rebuild model — `clear()` reuses internal node objects (zero GC churn frame-to-frame).
-- `disposed` read-only flag; post-dispose calls throw `QuadtreeDisposedError`.
-- Test coverage ≥95% statements / lines / functions / ≥90% branches (~30 it() blocks, groups A–H).
-- Size budget: ≤2 KB gzip.
-- Dual ESM + CJS build via `tsup` with `minify: true`; `sideEffects: false`; zero runtime dependencies.
-
-## [0.0.1] - 2026-05-28
-
-### Added (scaffold)
-
-- Full package scaffold landed (`package.json`, `tsconfig.json`,
-  `tsconfig.test.json`, `tsup.config.ts`, `vitest.config.ts`, `biome.json`,
-  `scripts/{verify-exports,check-size,build-llms-full}.mjs`,
-  `test/scaffold.test.ts`, `examples/.gitkeep`, `.github/workflows/{ci,publish}.yml`,
-  `llms.txt`, `llms-full.txt`).
-- `src/index.ts` remains a `throw` stub exposing the frozen 0.1.0 API surface
-  (`createQuadtree`, `Quadtree<T>`, `QuadtreeOptions`, `AABB`,
-  `QuadtreeError`, `QuadtreeDisposedError`).
-- `pnpm typecheck && pnpm lint && pnpm coverage && pnpm build &&
-  pnpm verify:exports && pnpm verify:llms && pnpm check:size` walks clean
-  against a single placeholder test.
-- Coverage thresholds temporarily set to `0/0/0/0`; tightened to
-  `95/90/100/100` in 0.1.0 with real tests.
-- Size budget temporarily set to 3 KB gzip; tightened to the 2 KB README
-  target in 0.1.0.
-- Publish workflow exists but trigger is `workflow_dispatch` only — no
-  accidental npm release on tag push until 0.1.0.
-
+- `0.5.5` through `0.5.1` focused on release hygiene, docs accuracy, and validation/retrieve regressions.
+- `0.4.0` declared the stable ai*js quadtree surface.
+- `0.3.x` added `retrieveInto()` and zero-allocation query paths.
+- `0.1.x` introduced `createQuadtree`, `AABB`, `Quadtree`, and error classes.
 
 ---
 
@@ -370,118 +120,31 @@ No runtime / source / API changes from 0.1.0. **0.1.1 is also the first version 
 
 # aiquadtreejs Stability
 
-This document tracks which public API is **stable** (subject to
-semver-major break only) vs **experimental** (subject to change without
-notice). Consumers should treat anything outside the Stable section as
-unfit for production reliance.
+## Stable Surface
 
----
+| Surface | Status | Notes |
+| --- | --- | --- |
+| `createQuadtree()` | Stable | Root factory. |
+| `AABB`, `QuadtreeOptions`, `Quadtree<T>` | Stable | Public types. |
+| `insert`, `retrieve`, `retrieveInto`, `clear`, `dispose` | Stable | Main methods. |
+| Error classes | Stable | `QuadtreeError`, `QuadtreeDisposedError`. |
 
-## Stable
+## Behavioral Contract
 
-The following are stable (since v0.3.0) and, as of **v0.4.0**, formally
-**frozen for the 1.x track** — they will not break before a major version
-bump (v1.0.0+).
+- Bounds use right-open coordinates.
+- Inserted object references are not cloned.
+- Retrieval is broadphase and deduplicated.
+- `retrieveInto()` preserves target array identity and clears it first.
+- `clear()` drains node contents and scratch references.
+- `dispose()` is idempotent and permanent.
 
-### Exports
+## Current Caveat
 
-- `createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<T>`
-- `Quadtree<T extends AABB>` — the tree interface (`insert` / `retrieve` / `retrieveInto` / `clear` / `dispose` / `disposed`)
-- `AABB` — `{ x, y, width, height }`, right-open semantics
-- `QuadtreeOptions` — `{ bounds, maxObjects?, maxLevels? }`
-- `QuadtreeError` — thrown by validation failures in `createQuadtree` and by `insert()` for invalid object geometry (non-finite coordinates, negative width/height)
-- `QuadtreeDisposedError` — thrown by any method on a disposed tree
+A zero-size point on the root minimum `x/y` boundary is known to be ignored by the current root overlap check. Treat this as a documented bug, not a stable behavior.
 
-### `Quadtree<T>` interface
+## Out of Scope
 
-| Member | Stability | Since |
-|---|---|---|
-| `insert(obj)` | Stable | 0.1.0 |
-| `retrieve(region)` | Stable | 0.1.0 |
-| `retrieveInto(region, target)` | Stable | 0.3.0 |
-| `clear()` | Stable | 0.1.0 |
-| `dispose()` | Stable | 0.1.0 |
-| `disposed` (readonly) | Stable | 0.1.0 |
-
-### Behaviour guarantees
-
-- Dedup: `retrieve` / `retrieveInto` return each candidate exactly once
-  even if it spans multiple quadrants.
-- Right-open AABB: `x + width` and `y + height` are exclusive
-  (renderer-neutral; matches common conventions such as PixiJS
-  `getBounds()`).
-- `insert()` validates the inserted object: throws `QuadtreeError` if any
-  of `x`, `y`, `width`, or `height` is non-finite (`NaN`, `Infinity`,
-  `-Infinity`), or if `width` or `height` is negative. Zero-extent objects
-  (points with `width=0` and/or `height=0`) are valid and accepted.
-- `retrieve()` and `retrieveInto()` validate the query region with the same
-  rules: non-finite coordinates or negative dimensions throw `QuadtreeError`.
-  Zero-extent regions are valid (they still query any overlapping node).
-- `maxLevels` has no upper-bound cap. Callers that raise it above the default
-  of `4` should be aware that spanning objects (those overlapping multiple
-  quadrant boundaries) are copied into every overlapping child node;
-  worst-case node count is ~4^maxLevels. The default is safe for typical game
-  scenes with 500–10,000 entities.
-- `dispose()` is idempotent; subsequent public-method calls throw
-  `QuadtreeDisposedError`.
-- All methods destructure cleanly: `const { insert } = qt; insert(obj)`
-  works without `this` binding.
-
----
-
-## Experimental / Draft
-
-These ideas are **not implemented** and have **no source code** in the
-package. They are recorded here so consumers and contributors can see
-the intended direction.
-
-### 3D octree variant (target: v0.6+)
-
-A 3D variant for platformer / 2.5D broadphase queries.
-
-```typescript
-// Draft only — no implementation in v0.3.x.
-interface AABB3 {
-  x: number; y: number; z: number;
-  width: number; height: number; depth: number;
-}
-
-interface Octree<T extends AABB3> {
-  insert(obj: T): void;
-  retrieve(region: AABB3): T[];
-  retrieveInto(region: AABB3, target: T[]): T[];
-  clear(): void;
-  dispose(): void;
-  readonly disposed: boolean;
-}
-
-export function createOctree<T extends AABB3>(opts: {
-  bounds: AABB3;
-  maxObjects?: number;
-  maxLevels?: number;
-}): Octree<T>;
-```
-
-Open questions:
-- Is a 2.5D quadtree with z-binning sufficient for typical platformer
-  collision (likely yes)?
-- Acceptable size increase for the octree path (target ≤ 1500 B gzip
-  additional)?
-
-Implementation is gated on a v0.5+ game actually needing it. Until
-then, consumers requiring 3D broadphase should pull a dedicated
-library (e.g. `octree-ts`).
-
----
-
-## Out of scope (will not implement)
-
-- Move-tracking (per-frame rebuild via `clear()` + `insert()` is the
-  intended pattern; see README "Why aiquadtreejs").
-- Precise hit-test (broadphase only; caller does narrow-phase).
-- Circle / Line / polygon primitives.
-- Persistence / serialisation.
-- KD-tree / R-tree variants.
+Precise collision checks, physics integration, spatial hashing, and 3D octrees are outside the current package.
 
 ---
 
@@ -489,80 +152,31 @@ library (e.g. `octree-ts`).
 
 # Contributing to aiquadtreejs
 
-Thanks for taking the time to look. aiquadtreejs is a deliberately small
-library (target ≤ 2 KB gzip); contributions that keep the surface narrow
-are easier to accept than ones that expand it.
+Keep the tree small, allocation-aware, and explicit about broadphase semantics.
 
-## Quick start
+## Local workflow
 
 ```bash
 pnpm install
-pnpm test            # vitest
-pnpm coverage        # vitest with v0.1.0 thresholds (95/90/100/100)
-pnpm typecheck       # tsc --noEmit on strict mode
-pnpm lint            # biome check
-pnpm build           # tsup; dual ESM/CJS + .d.ts
-pnpm verify:exports  # ensures package.json#exports matches dist/
-pnpm verify:llms     # ensures llms-full.txt is in sync with README + CHANGELOG
-pnpm check:size      # gzip per subpath against the size budget
+pnpm typecheck
+pnpm test
+pnpm verify:docs
+pnpm build:llms
+pnpm verify:llms
+pnpm check:size
 ```
 
-The full pre-publish gate is `pnpm prepublishOnly`, which runs typecheck,
-lint, coverage (with thresholds), build, exports verification, llms drift
-check, and size budget check — in that order.
+Run `pnpm lint` before PRs. If docs change, regenerate `llms-full.txt`.
 
-## What gets in easily
+## Rules
 
-- Bug fixes with a failing test added first
-- README / typing corrections
-- Tests that lock down existing behaviour (especially the Set-dedup
-  invariant on `retrieve`)
-- Performance work that keeps per-frame `clear()` + bulk `insert()` zero-GC
-
-## What needs discussion first
-
-- Anything that changes the public surface (`createQuadtree`, `Quadtree<T>`,
-  `AABB`, `QuadtreeOptions`, error classes)
-- Move-tracking / dynamic update (explicit non-goal — `clear()` + re-insert
-  is faster in practice for ≤ 10k entities)
-- Circle / Line / Polygon shape primitives (out of 2D AABB broadphase
-  scope; bring your own user-land wrapper)
-- 3D octree / R-tree / KD-tree (different size class; out of scope)
-- Anything that pushes the core gzip past 2 KB
-
-## Design principles
-
-aiquadtreejs follows the ai*js library-core priority order:
-
-> Security > Correctness > Simplicity > YAGNI > Performance
-
-Key invariants:
-
-- `retrieve()` deduplicates with a `Set` so each candidate appears once
-  regardless of how many quadrants it spans.
-- `clear()` reuses internal node objects across frames; no per-frame node
-  allocation.
-- `x + width` and `y + height` are **right-open** (exclusive), matching
-  PixiJS `getBounds()` semantics.
-- `dispose()` is idempotent.
-
-## Commit & PR style
-
-- Commit messages: imperative subject under 70 chars; body explains *why*.
-- PRs: keep scope to one topic. Link the issue if any.
-- Tests required for any behaviour change. Property-based tests welcome
-  for invariants (especially the Set-dedup property).
-
-## Reporting issues
-
-- Minimal reproduction welcome (paste the smallest insert / retrieve
-  sequence that shows the bug).
-- For security issues, please email the maintainer rather than filing
-  publicly.
+- Preserve right-open coordinate semantics.
+- Add tests for root edges, quadrant boundaries, zero-size objects, `retrieveInto()`, `clear()`, and dispose.
+- Do not turn broadphase results into precise collision promises.
+- Keep allocation behavior visible in docs and tests.
 
 ## License
 
-By contributing, you agree your changes will be licensed under the MIT
-license that covers this project.
+MIT
 
 ---

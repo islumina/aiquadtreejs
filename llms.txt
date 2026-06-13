@@ -1,5 +1,9 @@
 # aiquadtreejs
 
-> A tiny 2D quadtree for per-frame rebuild collision broadphase. Insert AABBs, retrieve candidates with Set-based dedup, clear, dispose. Caller does precise hit-testing. Designed for PixiJS games with 500–10,000 active entities. Zero runtime dependencies. Part of the ai*js micro-runtime ecosystem.
+Small 2D quadtree broadphase with insert, retrieve, retrieveInto, clear, and dispose.
 
-For the full LLM context (README + CHANGELOG + CONTRIBUTING concatenated), fetch [llms-full.txt](llms-full.txt).
+- Start: README.md
+- Stability: STABILITY.md
+- Current backlog: REVIEW.md
+- Changelog: CHANGELOG.md
+- Full generated context: llms-full.txt

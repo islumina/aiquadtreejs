@@ -1,114 +1,27 @@
 # aiquadtreejs Stability
 
-This document tracks which public API is **stable** (subject to
-semver-major break only) vs **experimental** (subject to change without
-notice). Consumers should treat anything outside the Stable section as
-unfit for production reliance.
+## Stable Surface
 
----
+| Surface | Status | Notes |
+| --- | --- | --- |
+| `createQuadtree()` | Stable | Root factory. |
+| `AABB`, `QuadtreeOptions`, `Quadtree<T>` | Stable | Public types. |
+| `insert`, `retrieve`, `retrieveInto`, `clear`, `dispose` | Stable | Main methods. |
+| Error classes | Stable | `QuadtreeError`, `QuadtreeDisposedError`. |
 
-## Stable
+## Behavioral Contract
 
-The following are stable (since v0.3.0) and, as of **v0.4.0**, formally
-**frozen for the 1.x track** — they will not break before a major version
-bump (v1.0.0+).
+- Bounds use right-open coordinates.
+- Inserted object references are not cloned.
+- Retrieval is broadphase and deduplicated.
+- `retrieveInto()` preserves target array identity and clears it first.
+- `clear()` drains node contents and scratch references.
+- `dispose()` is idempotent and permanent.
 
-### Exports
+## Current Caveat
 
-- `createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<T>`
-- `Quadtree<T extends AABB>` — the tree interface (`insert` / `retrieve` / `retrieveInto` / `clear` / `dispose` / `disposed`)
-- `AABB` — `{ x, y, width, height }`, right-open semantics
-- `QuadtreeOptions` — `{ bounds, maxObjects?, maxLevels? }`
-- `QuadtreeError` — thrown by validation failures in `createQuadtree` and by `insert()` for invalid object geometry (non-finite coordinates, negative width/height)
-- `QuadtreeDisposedError` — thrown by any method on a disposed tree
+A zero-size point on the root minimum `x/y` boundary is known to be ignored by the current root overlap check. Treat this as a documented bug, not a stable behavior.
 
-### `Quadtree<T>` interface
+## Out of Scope
 
-| Member | Stability | Since |
-|---|---|---|
-| `insert(obj)` | Stable | 0.1.0 |
-| `retrieve(region)` | Stable | 0.1.0 |
-| `retrieveInto(region, target)` | Stable | 0.3.0 |
-| `clear()` | Stable | 0.1.0 |
-| `dispose()` | Stable | 0.1.0 |
-| `disposed` (readonly) | Stable | 0.1.0 |
-
-### Behaviour guarantees
-
-- Dedup: `retrieve` / `retrieveInto` return each candidate exactly once
-  even if it spans multiple quadrants.
-- Right-open AABB: `x + width` and `y + height` are exclusive
-  (renderer-neutral; matches common conventions such as PixiJS
-  `getBounds()`).
-- `insert()` validates the inserted object: throws `QuadtreeError` if any
-  of `x`, `y`, `width`, or `height` is non-finite (`NaN`, `Infinity`,
-  `-Infinity`), or if `width` or `height` is negative. Zero-extent objects
-  (points with `width=0` and/or `height=0`) are valid and accepted.
-- `retrieve()` and `retrieveInto()` validate the query region with the same
-  rules: non-finite coordinates or negative dimensions throw `QuadtreeError`.
-  Zero-extent regions are valid (they still query any overlapping node).
-- `maxLevels` has no upper-bound cap. Callers that raise it above the default
-  of `4` should be aware that spanning objects (those overlapping multiple
-  quadrant boundaries) are copied into every overlapping child node;
-  worst-case node count is ~4^maxLevels. The default is safe for typical game
-  scenes with 500–10,000 entities.
-- `dispose()` is idempotent; subsequent public-method calls throw
-  `QuadtreeDisposedError`.
-- All methods destructure cleanly: `const { insert } = qt; insert(obj)`
-  works without `this` binding.
-
----
-
-## Experimental / Draft
-
-These ideas are **not implemented** and have **no source code** in the
-package. They are recorded here so consumers and contributors can see
-the intended direction.
-
-### 3D octree variant (target: v0.6+)
-
-A 3D variant for platformer / 2.5D broadphase queries.
-
-```typescript
-// Draft only — no implementation in v0.3.x.
-interface AABB3 {
-  x: number; y: number; z: number;
-  width: number; height: number; depth: number;
-}
-
-interface Octree<T extends AABB3> {
-  insert(obj: T): void;
-  retrieve(region: AABB3): T[];
-  retrieveInto(region: AABB3, target: T[]): T[];
-  clear(): void;
-  dispose(): void;
-  readonly disposed: boolean;
-}
-
-export function createOctree<T extends AABB3>(opts: {
-  bounds: AABB3;
-  maxObjects?: number;
-  maxLevels?: number;
-}): Octree<T>;
-```
-
-Open questions:
-- Is a 2.5D quadtree with z-binning sufficient for typical platformer
-  collision (likely yes)?
-- Acceptable size increase for the octree path (target ≤ 1500 B gzip
-  additional)?
-
-Implementation is gated on a v0.5+ game actually needing it. Until
-then, consumers requiring 3D broadphase should pull a dedicated
-library (e.g. `octree-ts`).
-
----
-
-## Out of scope (will not implement)
-
-- Move-tracking (per-frame rebuild via `clear()` + `insert()` is the
-  intended pattern; see README "Why aiquadtreejs").
-- Precise hit-test (broadphase only; caller does narrow-phase).
-- Circle / Line / polygon primitives.
-- Persistence / serialisation.
-- KD-tree / R-tree variants.
+Precise collision checks, physics integration, spatial hashing, and 3D octrees are outside the current package.
