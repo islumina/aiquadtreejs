@@ -198,6 +198,32 @@ function rectsOverlap(a: AABB, b: AABB): boolean {
   return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 }
 
+// Root containment check used only at the insert root gate.
+//
+// Right-open semantics for positive-extent dimensions (matching rectsOverlap):
+//   contained iff obj.x < bounds.x + bounds.width AND obj.x + obj.width > bounds.x
+//
+// Zero-extent exception for the minimum edge: a zero-size point sitting exactly
+// on bounds.x or bounds.y satisfies neither side of the strict-inequality test,
+// so it would be silently dropped. Instead, per axis:
+//   - zero-extent: contained iff coordinate is within [bounds.min, bounds.max] INCLUSIVE
+//   - positive-extent: keep the existing strict right-open overlap (unchanged)
+//
+// This matches quadrantIndices' own zero-extent fallback (obj.x >= midX etc.)
+// and preserves the invariant that a positive-size object flush on the right/bottom
+// exclusive boundary stays rejected.
+function rootContains(bounds: AABB, obj: AABB): boolean {
+  const inX =
+    obj.width === 0
+      ? obj.x >= bounds.x && obj.x <= bounds.x + bounds.width
+      : obj.x < bounds.x + bounds.width && obj.x + obj.width > bounds.x;
+  const inY =
+    obj.height === 0
+      ? obj.y >= bounds.y && obj.y <= bounds.y + bounds.height
+      : obj.y < bounds.y + bounds.height && obj.y + obj.height > bounds.y;
+  return inX && inY;
+}
+
 function quadrantIndices<T extends AABB>(node: Node<T>, obj: AABB): number[] {
   const midX = node.bounds.x + node.bounds.width / 2;
   const midY = node.bounds.y + node.bounds.height / 2;
@@ -247,7 +273,11 @@ function insertNode<T extends AABB>(
   // trust `quadrantIndices` to route correctly (it has zero-extent fallback
   // logic that `rectsOverlap` does not, so the strict check is too tight
   // at child level for points sitting on a child boundary).
-  if (node.level === 0 && !rectsOverlap(node.bounds, obj)) return;
+  // rootContains is used instead of rectsOverlap here so that zero-size
+  // points/lines sitting exactly on the minimum (left/top) edge are accepted
+  // with inclusive semantics, whilst positive-size objects retain right-open
+  // exclusion on the maximum edge.
+  if (node.level === 0 && !rootContains(node.bounds, obj)) return;
   if (node.children.length === 4) {
     for (const i of quadrantIndices(node, obj)) {
       const child = node.children[i];

@@ -978,3 +978,61 @@ describe("L. retrieve / retrieveInto adversarial region validation", () => {
     expect(() => qt.retrieve(aabb(50, 50, 100, 0))).not.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// M. Root boundary — zero-size point on left/top minimum edge
+// ---------------------------------------------------------------------------
+
+describe("M. Root boundary zero-size insertion", () => {
+  it("M1. zero-size point at exact top-left corner (bounds.x, bounds.y) is retrievable", () => {
+    // This is the primary P1 regression: the root-gate rectsOverlap used strict
+    // inequalities, so a zero-size point at (bounds.x, bounds.y) satisfied
+    // neither a.x < b.x + 0 (bounds.x < bounds.x → false) and was silently
+    // dropped. The fixed root gate must accept it.
+    const bounds = aabb(0, 0, 800, 600);
+    const qt = createQuadtree({ bounds });
+    const pt = aabb(bounds.x, bounds.y, 0, 0); // { x:0, y:0, width:0, height:0 }
+    qt.insert(pt);
+    const result = qt.retrieve(aabb(0, 0, 10, 10));
+    expect(result).toContain(pt);
+  });
+
+  it("M2. zero-size point on left edge (x=bounds.x, y=mid) is retrievable", () => {
+    const bounds = aabb(0, 0, 800, 600);
+    const qt = createQuadtree({ bounds });
+    const pt = aabb(bounds.x, 300, 0, 0); // x exactly on left edge, y somewhere in the middle
+    qt.insert(pt);
+    const result = qt.retrieve(aabb(0, 290, 10, 20));
+    expect(result).toContain(pt);
+  });
+
+  it("M3. zero-size point on top edge (x=mid, y=bounds.y) is retrievable", () => {
+    const bounds = aabb(0, 0, 800, 600);
+    const qt = createQuadtree({ bounds });
+    const pt = aabb(400, bounds.y, 0, 0); // x somewhere in the middle, y exactly on top edge
+    qt.insert(pt);
+    const result = qt.retrieve(aabb(390, 0, 20, 10));
+    expect(result).toContain(pt);
+  });
+
+  it("M4. zero-size point just outside bounds (x < bounds.x) is silently excluded", () => {
+    // Negative control: a point outside the left edge must stay excluded.
+    const bounds = aabb(0, 0, 800, 600);
+    const qt = createQuadtree({ bounds });
+    const pt = aabb(bounds.x - 1, bounds.y, 0, 0); // one pixel left of the left edge
+    qt.insert(pt); // must be a no-op (silent drop)
+    const result = qt.retrieve(aabb(0, 0, 800, 600));
+    expect(result).not.toContain(pt);
+  });
+
+  it("M5. positive-size object flush on the right/bottom edge stays excluded", () => {
+    // Right-open semantics: a 10×10 box whose left edge is at bounds.x+bounds.width
+    // has no overlap — rectsOverlap rightly rejects it and the fix must not change that.
+    const bounds = aabb(0, 0, 800, 600);
+    const qt = createQuadtree({ bounds });
+    const obj = aabb(800, 0, 10, 10); // x = bounds.x + bounds.width — entirely outside
+    qt.insert(obj);
+    const result = qt.retrieve(aabb(0, 0, 800, 600));
+    expect(result).not.toContain(obj);
+  });
+});
