@@ -2,7 +2,7 @@
 
 小型 2D quadtree，用於每 frame 重建的 collision broadphase。插入 AABB、取回候選物件，精確碰撞檢查由呼叫端負責。
 
-> **狀態：0.5.6 - 穩定 1.0 軌道 API。** root entry 是公開 API。
+> **狀態：0.5.8 - 穩定 1.0 軌道 API。** root entry 是公開 API。
 
 ## 安裝
 
