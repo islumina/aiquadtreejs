@@ -1035,4 +1035,17 @@ describe("M. Root boundary zero-size insertion", () => {
     const result = qt.retrieve(aabb(0, 0, 800, 600));
     expect(result).not.toContain(obj);
   });
+
+  it("M6. zero-size point on the right/bottom maximum edge stays excluded (right-open)", () => {
+    // Negative control mirroring M1: the minimum edge is inclusive, but the
+    // maximum edge stays exclusive per the right-open [x, x+width) contract.
+    // A zero-size point at (bounds.x+bounds.width, bounds.y+bounds.height) was
+    // rejected by the original rectsOverlap gate and must remain rejected.
+    const bounds = aabb(0, 0, 800, 600);
+    const qt = createQuadtree({ bounds });
+    const pt = aabb(bounds.x + bounds.width, bounds.y + bounds.height, 0, 0); // (800, 600)
+    qt.insert(pt);
+    const result = qt.retrieve(aabb(0, 0, 800, 600));
+    expect(result).not.toContain(pt);
+  });
 });

@@ -206,7 +206,8 @@ function rectsOverlap(a: AABB, b: AABB): boolean {
 // Zero-extent exception for the minimum edge: a zero-size point sitting exactly
 // on bounds.x or bounds.y satisfies neither side of the strict-inequality test,
 // so it would be silently dropped. Instead, per axis:
-//   - zero-extent: contained iff coordinate is within [bounds.min, bounds.max] INCLUSIVE
+//   - zero-extent: contained iff coordinate is within [bounds.min, bounds.max) —
+//     inclusive minimum, exclusive maximum (right-open, matching the box contract)
 //   - positive-extent: keep the existing strict right-open overlap (unchanged)
 //
 // This matches quadrantIndices' own zero-extent fallback (obj.x >= midX etc.)
@@ -215,11 +216,11 @@ function rectsOverlap(a: AABB, b: AABB): boolean {
 function rootContains(bounds: AABB, obj: AABB): boolean {
   const inX =
     obj.width === 0
-      ? obj.x >= bounds.x && obj.x <= bounds.x + bounds.width
+      ? obj.x >= bounds.x && obj.x < bounds.x + bounds.width
       : obj.x < bounds.x + bounds.width && obj.x + obj.width > bounds.x;
   const inY =
     obj.height === 0
-      ? obj.y >= bounds.y && obj.y <= bounds.y + bounds.height
+      ? obj.y >= bounds.y && obj.y < bounds.y + bounds.height
       : obj.y < bounds.y + bounds.height && obj.y + obj.height > bounds.y;
   return inX && inY;
 }
