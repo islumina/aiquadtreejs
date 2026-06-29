@@ -58,7 +58,7 @@ const candidates = tree.retrieve({ x: 80, y: 80, width: 120, height: 120 });
 
 ## Sharp Edges
 
-- Known bug: a zero-size point exactly on the root `left/top` boundary, such as `{ x: bounds.x, y: bounds.y, width: 0, height: 0 }`, is currently ignored by the root overlap check. Zero-size objects away from that root minimum edge are covered by tests. Next code pass should fix the root containment helper and add boundary tests.
+- Zero-size points (width = 0, height = 0) follow right-open `[x, x+width)` semantics: a point on the minimum `x/y` boundary is **inclusive** and is inserted/retrieved correctly; a point at the exclusive maximum edge is outside the root and is ignored. (Was a bug before 0.5.8; fixed.)
 - Fully outside objects are ignored by retrieval.
 - Negative width/height and non-finite coordinates throw.
 - `retrieveInto()` clears the target array before writing results.

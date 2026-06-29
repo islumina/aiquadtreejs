@@ -18,9 +18,9 @@
 - `clear()` drains node contents and scratch references.
 - `dispose()` is idempotent and permanent.
 
-## Current Caveat
+## Zero-Size Point Boundary Semantics
 
-A zero-size point on the root minimum `x/y` boundary is known to be ignored by the current root overlap check. Treat this as a documented bug, not a stable behavior.
+Zero-size points (width = 0, height = 0) follow right-open `[x, x+width)` semantics on the root boundary: a point exactly on the minimum `x/y` edge is **inclusive** and will be inserted and retrieved correctly. A point at the exclusive maximum edge (`bounds.x + bounds.width`, `bounds.y + bounds.height`) is outside the root and is ignored. This was a known bug in versions before 0.5.8; it is fixed and covered by tests as of 0.5.8.
 
 ## Out of Scope
 
