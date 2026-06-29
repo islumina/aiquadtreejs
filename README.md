@@ -2,7 +2,7 @@
 
 Tiny 2D quadtree for per-frame rebuild collision broadphase. Insert AABBs, retrieve candidates, then run precise collision checks yourself.
 
-> **Status: 0.5.8 - stable 1.0-track surface.** The root entry is the public API.
+> **Status: 0.5.9 - stable 1.0-track surface.** The root entry is the public API.
 
 ## Install
 
