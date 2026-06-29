@@ -1,7 +1,7 @@
 // aiquadtreejs — 2D quadtree for per-frame rebuild collision broadphase.
 //
-// v0.5.1: full implementation. Plain-object nodes, iterative-DFS retrieve,
-// Set-based dedup, idempotent dispose, destructurable methods (no `this`).
+// Plain-object nodes, iterative-DFS retrieve, Set-based dedup, idempotent
+// dispose, destructurable methods (no `this`). Version: see package.json.
 
 /**
  * Axis-aligned bounding box.
@@ -447,8 +447,8 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
 
   /**
    * Validate a region AABB for use in retrieve / retrieveInto.
-   * Mirrors insert()'s 0.5.1 validation: non-finite coordinates or negative
-   * dimensions throw QuadtreeError with an `aiquadtreejs: ` prefix message.
+   * Non-finite coordinates or negative dimensions throw QuadtreeError with
+   * an `aiquadtreejs: ` prefix message.
    */
   function validateRegion(region: AABB): void {
     if (

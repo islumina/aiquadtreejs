@@ -6,11 +6,11 @@ Current review state after the 2026-06-10 ai*js pass.
 
 | Priority | Area | Status | Notes |
 | --- | --- | --- | --- |
-| P1 | Zero-size root boundary | Open | `{ x: bounds.x, y: bounds.y, width: 0, height: 0 }` is ignored by the root `rectsOverlap` check. Fix root containment/intersection and add boundary tests. |
 | P3 | Unbounded `maxLevels` | Documented | High depths plus spanning objects can explode node counts. Current behavior leaves the cap to callers. |
 
 ## Fixed Summary
 
+- Zero-size root boundary (fixed 0.5.8): `rootContains` now uses inclusive-minimum / exclusive-maximum (`[x, x+width)`) semantics for zero-size points, so a point exactly on the root `left/top` boundary is correctly accepted.
 - `retrieve()` and `retrieveInto()` validate regions before traversal.
 - `clear()` drains internal scratch buffers.
 - Spanning object results are deduplicated.
