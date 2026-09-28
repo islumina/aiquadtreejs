@@ -58,7 +58,7 @@ const candidates = tree.retrieve({ x: 80, y: 80, width: 120, height: 120 });
 
 ## 注意事項
 
-- 已知 bug：零尺寸 point 若剛好在 root `left/top` 邊界，例如 `{ x: bounds.x, y: bounds.y, width: 0, height: 0 }`，目前會被 root overlap check 忽略。離開 root minimum edge 的零尺寸物件已有測試覆蓋。下一輪 code pass 應修正 root containment helper 並補 boundary tests。
+- 零尺寸 point（width = 0, height = 0）遵循 right-open 的 `[x, x+width)` 語意：剛好落在 minimum `x/y` 邊界上的 point 屬於**包含**範圍，會被正確插入與取回；落在 exclusive 的 maximum 邊界上的 point 則在 root 之外，會被忽略。（0.5.8 之前是已知 bug，現已修正。）
 - 完全在 bounds 外的物件不會被 retrieve 到。
 - 負 width/height 與非有限座標會 throw。
 - `retrieveInto()` 會先清空 target array 再寫入結果。
