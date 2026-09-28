@@ -68,6 +68,7 @@ const candidates = tree.retrieve({ x: 80, y: 80, width: 120, height: 120 });
 - Expected usage is per-frame rebuild: `clear()`, insert active bodies, query.
 - Objects spanning quadrant boundaries can be stored in multiple child nodes; results are deduplicated.
 - `maxLevels` has no hard cap. Very high values plus spanning objects can create huge node counts.
+- Subdivision also stops once a node's midpoint is no longer representable in floating point (typically around depth 45-52), so a very high `maxLevels` cannot make a dense point cluster silently vanish from `retrieve()`.
 
 ## Sharp Edges
 
@@ -98,6 +99,10 @@ MIT
 All notable changes to aiquadtreejs are summarized here.
 
 ## [Unreleased]
+
+- Fixed: `createQuadtree` read `bounds.x/y/width/height` into locals instead of storing `{ ...bounds }`, so accessor-backed bounds (e.g. PixiJS v8 `Bounds`, returned by `getBounds()`) are no longer dropped — previously every insert was silently lost and `retrieve()` always returned `[]`.
+- Fixed: `retrieve()`/`retrieveInto()` now match zero-extent regions that land exactly on a node's minimum edge (the root's `x`/`y` or any subdivision midline), instead of missing them depending on whether unrelated inserts had already subdivided the tree.
+- Fixed: subdivision now stops once a node's midpoint is no longer representable in floating point, instead of continuing until `maxLevels`; previously a dense point cluster near that depth would silently stop matching `retrieve()` region queries.
 
 ## [0.5.9] - 2026-06-29
 
@@ -133,6 +138,7 @@ All notable changes to aiquadtreejs are summarized here.
 | `createQuadtree()` | Stable | Root factory. |
 | `AABB`, `QuadtreeOptions`, `Quadtree<T>` | Stable | Public types. |
 | `insert`, `retrieve`, `retrieveInto`, `clear`, `dispose` | Stable | Main methods. |
+| `disposed` (read-only getter) | Stable | `true` once `dispose()` has been called. |
 | Error classes | Stable | `QuadtreeError`, `QuadtreeDisposedError`. |
 
 ## Behavioral Contract

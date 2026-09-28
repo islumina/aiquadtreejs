@@ -4,6 +4,10 @@ All notable changes to aiquadtreejs are summarized here.
 
 ## [Unreleased]
 
+- Fixed: `createQuadtree` read `bounds.x/y/width/height` into locals instead of storing `{ ...bounds }`, so accessor-backed bounds (e.g. PixiJS v8 `Bounds`, returned by `getBounds()`) are no longer dropped — previously every insert was silently lost and `retrieve()` always returned `[]`.
+- Fixed: `retrieve()`/`retrieveInto()` now match zero-extent regions that land exactly on a node's minimum edge (the root's `x`/`y` or any subdivision midline), instead of missing them depending on whether unrelated inserts had already subdivided the tree.
+- Fixed: subdivision now stops once a node's midpoint is no longer representable in floating point, instead of continuing until `maxLevels`; previously a dense point cluster near that depth would silently stop matching `retrieve()` region queries.
+
 ## [0.5.9] - 2026-06-29
 
 - Docs: corrected the zero-size root boundary description — a point on the root min boundary is inclusive and the max boundary is exclusive (right-open `[x, x+width)`), shipped in 0.5.8; removed the stale "known bug" wording and version tokens in source comments.

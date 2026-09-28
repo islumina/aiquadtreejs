@@ -55,6 +55,7 @@ const candidates = tree.retrieve({ x: 80, y: 80, width: 120, height: 120 });
 - 預期用法是每 frame 重建：`clear()`、插入 active bodies、query。
 - 跨 quadrant 的物件可能存在多個 child nodes；結果會 dedup。
 - `maxLevels` 沒有硬上限。很高的值加上 spanning objects 可能建立巨大 node 數。
+- 一旦 node 的中點在浮點數中無法被表示（通常在深度約 45-52 左右），subdivision 也會停止，所以再高的 `maxLevels` 也不會讓密集的 point cluster 從 `retrieve()` 中悄悄消失。
 
 ## 注意事項
 
