@@ -343,19 +343,26 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
   const { bounds } = opts;
   const maxObjects = opts.maxObjects ?? 10;
   const maxLevels = opts.maxLevels ?? 4;
+  // Read each field once: accessor-backed bounds (e.g. PixiJS v8 `Bounds`)
+  // would be lost by an object spread, and a second read could disagree
+  // with the validated value.
+  const bx = bounds.x;
+  const by = bounds.y;
+  const bw = bounds.width;
+  const bh = bounds.height;
 
   if (
-    !Number.isFinite(bounds.x) ||
-    !Number.isFinite(bounds.y) ||
-    !Number.isFinite(bounds.width) ||
-    !Number.isFinite(bounds.height)
+    !Number.isFinite(bx) ||
+    !Number.isFinite(by) ||
+    !Number.isFinite(bw) ||
+    !Number.isFinite(bh)
   ) {
     throw new QuadtreeError("bounds must contain finite numbers");
   }
-  if (bounds.width <= 0) {
+  if (bw <= 0) {
     throw new QuadtreeError("bounds.width must be > 0");
   }
-  if (bounds.height <= 0) {
+  if (bh <= 0) {
     throw new QuadtreeError("bounds.height must be > 0");
   }
   if (!Number.isInteger(maxObjects) || maxObjects <= 0) {
@@ -367,7 +374,7 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
 
   const state: State<T> = {
     root: {
-      bounds: { ...bounds },
+      bounds: { x: bx, y: by, width: bw, height: bh },
       level: 0,
       objects: [],
       children: [],

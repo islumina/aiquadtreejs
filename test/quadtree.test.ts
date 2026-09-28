@@ -61,6 +61,52 @@ describe("A. Construction & validation", () => {
       QuadtreeError,
     );
   });
+
+  it("A9. bounds with prototype getters (PixiJS v8 Bounds shape) are honoured", () => {
+    // Regression: bounds was copied with `{ ...bounds }`, which drops prototype
+    // accessors, leaving a root with undefined extents — every insert vanished.
+    class GetterBounds implements AABB {
+      minX = 0;
+      minY = 0;
+      maxX = 800;
+      maxY = 600;
+      get x(): number {
+        return this.minX;
+      }
+      get y(): number {
+        return this.minY;
+      }
+      get width(): number {
+        return this.maxX - this.minX;
+      }
+      get height(): number {
+        return this.maxY - this.minY;
+      }
+    }
+    const qt = createQuadtree({ bounds: new GetterBounds() });
+    const box = aabb(100, 100, 32, 32);
+    qt.insert(box);
+    expect(qt.retrieve(aabb(0, 0, 800, 600))).toContain(box);
+  });
+
+  it("A10. bounds fields are read once: validated values are the stored values", () => {
+    // Regression (TOCTOU): a getter finite during validation but NaN on a
+    // later read must not produce an accepted-but-broken tree.
+    let reads = 0;
+    const bounds = {
+      y: 0,
+      width: 800,
+      height: 600,
+      get x(): number {
+        reads++;
+        return reads === 1 ? 0 : Number.NaN;
+      },
+    };
+    const qt = createQuadtree({ bounds });
+    const box = aabb(100, 100, 32, 32);
+    qt.insert(box);
+    expect(qt.retrieve(aabb(0, 0, 800, 600))).toContain(box);
+  });
 });
 
 // ---------------------------------------------------------------------------
