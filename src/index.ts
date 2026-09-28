@@ -161,9 +161,10 @@ export interface Quadtree<T extends AABB> {
 
 /**
  * Recoverable quadtree error — thrown by `createQuadtree` for invalid
- * construction options and by `insert()` for precondition violations
+ * construction options, by `insert()` for precondition violations
  * (e.g. an inserted object with non-finite coordinates or negative
- * `width` / `height`).
+ * `width` / `height`), and by `retrieve()` / `retrieveInto()` for regions
+ * with non-finite fields or negative `width` / `height`.
  *
  * @public
  */
