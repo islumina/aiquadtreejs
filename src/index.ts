@@ -102,7 +102,7 @@ export interface Quadtree<T extends AABB> {
   retrieve(region: AABB): T[];
 
   /**
-   * Zero-allocation variant of {@link retrieve}.
+   * Reduced-allocation variant of {@link retrieve}.
    *
    * Clears `target` (sets `target.length = 0`), walks the tree using the same
    * iterative DFS + Set-based dedup as {@link retrieve}, then writes every
@@ -120,12 +120,16 @@ export interface Quadtree<T extends AABB> {
    * @invariant Dedup semantics identical to {@link retrieve}: objects
    *   spanning multiple quadrants appear exactly once.
    *
-   * Allocation: in steady state this performs no per-call heap allocation.
-   * The dedup `Set` and DFS stack are reused across calls (cleared, not
-   * re-created), and results are written into the caller's `target` instead
-   * of a fresh array. The first calls may grow the internal scratch; once
-   * result sizes stabilise, allocation amortises to zero — the design goal
-   * for per-frame broadphase loops issuing thousands of queries.
+   * Allocation: this avoids the fresh result array that {@link retrieve}
+   * allocates on every call — the internal DFS stack is reused across calls,
+   * and results are written into the caller's `target` instead of a new
+   * array. It does **not** allocate zero heap per call in practice: on V8,
+   * clearing the internal dedup `Set` replaces its backing table and
+   * `target.length = 0` drops the target array's backing store, so both are
+   * rebuilt on the next call, at a cost proportional to the result size.
+   * These are small, short-lived young-generation allocations, not the
+   * unbounded fresh-array allocation `retrieve()` makes, but they do not
+   * amortise away to literally zero.
    *
    * @throws {@link QuadtreeError} if any of `region.x`, `region.y`,
    *   `region.width`, or `region.height` is non-finite (`NaN`, `Infinity`,
@@ -437,16 +441,17 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
     insertNode(state.root, obj, state.maxObjects, state.maxLevels);
   }
 
-  // Reusable scratch for retrieveSet, hoisted so steady-state queries
-  // allocate nothing. Safe because the returned Set never escapes the
-  // module: retrieve copies it out via Array.from and retrieveInto via a
-  // push loop, both synchronously and fully before any subsequent call.
+  // Reusable scratch for retrieveSet, hoisted to avoid a fresh DFS stack per
+  // call. Safe because the returned Set never escapes the module: retrieve
+  // copies it out via Array.from and retrieveInto via a push loop, both
+  // synchronously and fully before any subsequent call. Note that
+  // scratchSet.clear() still rebuilds the Set's backing table on V8, so this
+  // does not make retrieveInto literally allocation-free — see its JSDoc.
   //
   // Plain-data assumption (tightened, QDT-B-02): region.x/y/width/height
   // are read once into locals at the top of retrieveSet, then written into
-  // the reusable scratchRegion (no per-query allocation — the zero-alloc
-  // contract of retrieveInto holds). This prevents a structurally-typed
-  // region whose getter calls back into retrieve* from corrupting the shared
+  // the reusable scratchRegion. This prevents a structurally-typed region
+  // whose getter calls back into retrieve* from corrupting the shared
   // scratch mid-walk: any re-entrant call triggered by a getter completes
   // synchronously during the four reads, before this call touches scratch.
   // Adversarial-only: plain-object callers (all documented examples) are
