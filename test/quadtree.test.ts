@@ -303,6 +303,45 @@ describe("D. Right-open AABB semantics", () => {
     const result = qt.retrieve(aabb(50, 0, 0, 100));
     expect(result).not.toContain(nwObj);
   });
+
+  it("D4. zero-extent query on a subdivision midline still finds a covering object", () => {
+    // Regression: the retrieve node test was strictly right-open with no
+    // zero-extent case, so a point/line on a node's min edge matched no node
+    // once unrelated inserts had subdivided the root.
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const box = aabb(350, 250, 100, 100); // covers (400, 300)
+    qt.insert(box);
+    const point = aabb(400, 300, 0, 0);
+    expect(qt.retrieve(point)).toContain(box);
+    for (let i = 0; i < 10; i++) qt.insert(aabb(10 + i, 10, 1, 1)); // subdivides root
+    expect(qt.retrieve(point)).toContain(box);
+    expect(qt.retrieve(aabb(400, 0, 0, 600))).toContain(box);
+    expect(qt.retrieve(aabb(0, 300, 800, 0))).toContain(box);
+  });
+
+  it("D5. zero-extent query at the root min corner finds a point inserted there", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const pt = aabb(0, 0, 0, 0);
+    qt.insert(pt);
+    expect(qt.retrieve(aabb(0, 0, 0, 0))).toContain(pt);
+  });
+
+  it("D6. zero-extent query at the subdivision midpoint finds a point inserted there", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 100, 100), maxObjects: 1, maxLevels: 4 });
+    qt.insert(aabb(10, 10, 5, 5));
+    qt.insert(aabb(90, 90, 5, 5));
+    const midPoint = aabb(50, 50, 0, 0);
+    qt.insert(midPoint);
+    expect(qt.retrieve(aabb(50, 50, 0, 0))).toContain(midPoint);
+  });
+
+  it("D7. zero-extent query on the root max edge stays outside (right-open)", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 100, 100) });
+    const obj = aabb(90, 90, 10, 10);
+    qt.insert(obj);
+    expect(qt.retrieve(aabb(100, 50, 0, 0))).toEqual([]);
+    expect(qt.retrieve(aabb(50, 100, 0, 0))).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -194,26 +194,23 @@ interface State<T extends AABB> {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-function rectsOverlap(a: AABB, b: AABB): boolean {
-  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
-}
-
-// Root containment check used only at the insert root gate.
+// Node/rect overlap test used at the insert root gate and by retrieve's
+// node walk (with the query region as `obj`).
 //
-// Right-open semantics for positive-extent dimensions (matching rectsOverlap):
-//   contained iff obj.x < bounds.x + bounds.width AND obj.x + obj.width > bounds.x
+// Right-open semantics for positive-extent dimensions:
+//   overlaps iff obj.x < bounds.x + bounds.width AND obj.x + obj.width > bounds.x
 //
 // Zero-extent exception for the minimum edge: a zero-size point sitting exactly
 // on bounds.x or bounds.y satisfies neither side of the strict-inequality test,
-// so it would be silently dropped. Instead, per axis:
-//   - zero-extent: contained iff coordinate is within [bounds.min, bounds.max) —
+// so it would be silently dropped (or, as a query, match no node). Instead, per axis:
+//   - zero-extent: overlaps iff coordinate is within [bounds.min, bounds.max) —
 //     inclusive minimum, exclusive maximum (right-open, matching the box contract)
 //   - positive-extent: keep the existing strict right-open overlap (unchanged)
 //
 // This matches quadrantIndices' own zero-extent fallback (obj.x >= midX etc.)
 // and preserves the invariant that a positive-size object flush on the right/bottom
 // exclusive boundary stays rejected.
-function rootContains(bounds: AABB, obj: AABB): boolean {
+function nodeOverlaps(bounds: AABB, obj: AABB): boolean {
   const inX =
     obj.width === 0
       ? obj.x >= bounds.x && obj.x < bounds.x + bounds.width
@@ -271,14 +268,11 @@ function insertNode<T extends AABB>(
   maxLevels: number,
 ): void {
   // Reject objects entirely outside the root bounds; for inner nodes we
-  // trust `quadrantIndices` to route correctly (it has zero-extent fallback
-  // logic that `rectsOverlap` does not, so the strict check is too tight
-  // at child level for points sitting on a child boundary).
-  // rootContains is used instead of rectsOverlap here so that zero-size
-  // points/lines sitting exactly on the minimum (left/top) edge are accepted
-  // with inclusive semantics, whilst positive-size objects retain right-open
-  // exclusion on the maximum edge.
-  if (node.level === 0 && !rootContains(node.bounds, obj)) return;
+  // trust `quadrantIndices` to route correctly.
+  // nodeOverlaps accepts zero-size points/lines sitting exactly on the
+  // minimum (left/top) edge with inclusive semantics, whilst positive-size
+  // objects retain right-open exclusion on the maximum edge.
+  if (node.level === 0 && !nodeOverlaps(node.bounds, obj)) return;
   if (node.children.length === 4) {
     for (const i of quadrantIndices(node, obj)) {
       const child = node.children[i];
@@ -445,7 +439,7 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
     while (scratchStack.length > 0) {
       const node = scratchStack.pop();
       if (node === undefined) continue;
-      if (!rectsOverlap(node.bounds, scratchRegion)) continue;
+      if (!nodeOverlaps(node.bounds, scratchRegion)) continue;
       for (const obj of node.objects) scratchSet.add(obj);
       for (const child of node.children) scratchStack.push(child);
     }
