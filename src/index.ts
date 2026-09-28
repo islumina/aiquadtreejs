@@ -54,6 +54,14 @@ export interface QuadtreeOptions {
    * large vs small objects in your scene. No upper-bound cap is applied
    * (the caller knows their workload); the default `4` is safe for typical
    * game scenes with 500–10,000 entities.
+   *
+   * **Precision-bound depth:** subdivision also stops once a node's
+   * midpoint is no longer representable in floating point (its width or
+   * height has fallen below the ulp of its coordinate) — typically around
+   * depth 45-52 for typical scene-sized bounds, well below the 4^L node-count
+   * concern above. Nodes past this depth become terminal leaves regardless
+   * of `maxLevels`, so a very high `maxLevels` cannot make a dense point
+   * cluster vanish from `retrieve()`.
    */
   maxLevels?: number;
 }
@@ -261,6 +269,26 @@ function subdivide<T extends AABB>(node: Node<T>): void {
   node.objects.length = 0;
 }
 
+// True while node.bounds still has a representable midpoint on both axes,
+// i.e. `x + width / 2` actually lands strictly between `x` and `x + width`
+// in floating point (and likewise for y). Once a node's width/height falls
+// below the ulp of its coordinate, the computed midpoint rounds back to `x`
+// (or up to `x + width`), so `subdivide()` would create children that are
+// not smaller than their parent — an infinite-seeming split that silently
+// stops matching queries instead of erroring. Below this point further
+// subdivision is skipped and the node stays a terminal leaf even if
+// `node.level < maxLevels`.
+function isSplitRepresentable(bounds: AABB): boolean {
+  const midX = bounds.x + bounds.width / 2;
+  const midY = bounds.y + bounds.height / 2;
+  return (
+    midX > bounds.x &&
+    midX < bounds.x + bounds.width &&
+    midY > bounds.y &&
+    midY < bounds.y + bounds.height
+  );
+}
+
 function insertNode<T extends AABB>(
   node: Node<T>,
   obj: T,
@@ -281,7 +309,11 @@ function insertNode<T extends AABB>(
     return;
   }
   node.objects.push(obj);
-  if (node.objects.length > maxObjects && node.level < maxLevels) {
+  if (
+    node.objects.length > maxObjects &&
+    node.level < maxLevels &&
+    isSplitRepresentable(node.bounds)
+  ) {
     subdivide(node);
   }
 }

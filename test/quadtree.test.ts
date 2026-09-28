@@ -1134,3 +1134,28 @@ describe("M. Root boundary zero-size insertion", () => {
     expect(result).not.toContain(pt);
   });
 });
+
+describe("N. Precision-bound subdivision depth", () => {
+  it("N1. a dense point cluster stays retrievable even with maxLevels far past the ulp limit", () => {
+    // Regression for the silent-data-loss bug: subdividing purely on
+    // `node.level < maxLevels` with no representability check drives node
+    // width/height below the ulp of the coordinate, so `x + width / 2`
+    // rounds back to `x`. `subdivide()` then keeps producing children
+    // indistinguishable from their parent, and a point cluster stops
+    // matching region queries that start exactly on it.
+    const qt = createQuadtree({
+      bounds: aabb(0, 0, 800, 600),
+      maxObjects: 1,
+      maxLevels: 60,
+    });
+    const points: AABB[] = [];
+    for (let i = 0; i < 63; i++) {
+      points.push(aabb(181.3796469461808, 566.249239416442, 0, 0));
+    }
+    for (const p of points) qt.insert(p);
+    const pointQuery = qt.retrieve(aabb(181.3796469461808, 566.249239416442, 1, 1));
+    expect(pointQuery.length).toBe(63);
+    const fullQuery = qt.retrieve(aabb(0, 0, 800, 600));
+    expect(fullQuery.length).toBe(63);
+  });
+});
