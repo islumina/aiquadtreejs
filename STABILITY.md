@@ -7,6 +7,7 @@
 | `createQuadtree()` | Stable | Root factory. |
 | `AABB`, `QuadtreeOptions`, `Quadtree<T>` | Stable | Public types. |
 | `insert`, `retrieve`, `retrieveInto`, `clear`, `dispose` | Stable | Main methods. |
+| `disposed` (read-only getter) | Stable | `true` once `dispose()` has been called. |
 | Error classes | Stable | `QuadtreeError`, `QuadtreeDisposedError`. |
 
 ## Behavioral Contract
