@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { type AABB, QuadtreeDisposedError, QuadtreeError, createQuadtree } from "../src/index.js";
+import { nextDown } from "./float.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -8,6 +9,32 @@ import { type AABB, QuadtreeDisposedError, QuadtreeError, createQuadtree } from 
 
 function aabb(x: number, y: number, width: number, height: number): AABB {
   return { x, y, width, height };
+}
+
+// Every QuadtreeError message starts with `aiquadtreejs: `; tests match the
+// class plus an anchored regex rather than the class alone.
+const MSG = {
+  options: /^aiquadtreejs: options must be an object with bounds$/,
+  boundsObject:
+    /^aiquadtreejs: bounds must be an object with finite numeric x, y, width and height$/,
+  boundsFinite: /^aiquadtreejs: bounds must contain finite numbers$/,
+  boundsWidth: /^aiquadtreejs: bounds\.width must be > 0$/,
+  boundsHeight: /^aiquadtreejs: bounds\.height must be > 0$/,
+  maxObjects: /^aiquadtreejs: maxObjects must be a positive integer$/,
+  maxLevels: /^aiquadtreejs: maxLevels must be a positive integer$/,
+  objFinite:
+    /^aiquadtreejs: inserted object must be defined with finite numeric x, y, width and height$/,
+  objWidth: /^aiquadtreejs: inserted object width must be >= 0$/,
+  objHeight: /^aiquadtreejs: inserted object height must be >= 0$/,
+  regionFinite: /^aiquadtreejs: retrieve region must have finite numeric x, y, width and height$/,
+  regionWidth: /^aiquadtreejs: retrieve region width must be >= 0$/,
+  regionHeight: /^aiquadtreejs: retrieve region height must be >= 0$/,
+  target: /^aiquadtreejs: retrieveInto target must be an array$/,
+} as const;
+
+function expectQuadtreeError(fn: () => unknown, message: RegExp): void {
+  expect(fn).toThrow(QuadtreeError);
+  expect(fn).toThrow(message);
 }
 
 // ---------------------------------------------------------------------------
@@ -27,38 +54,48 @@ describe("A. Construction & validation", () => {
   });
 
   it("A3. bounds.width <= 0 throws QuadtreeError", () => {
-    expect(() => createQuadtree({ bounds: aabb(0, 0, 0, 100) })).toThrow(QuadtreeError);
-    expect(() => createQuadtree({ bounds: aabb(0, 0, -1, 100) })).toThrow(QuadtreeError);
+    expectQuadtreeError(() => createQuadtree({ bounds: aabb(0, 0, 0, 100) }), MSG.boundsWidth);
+    expectQuadtreeError(() => createQuadtree({ bounds: aabb(0, 0, -1, 100) }), MSG.boundsWidth);
   });
 
   it("A4. bounds with NaN throws QuadtreeError", () => {
-    expect(() => createQuadtree({ bounds: aabb(Number.NaN, 0, 100, 100) })).toThrow(QuadtreeError);
-    expect(() => createQuadtree({ bounds: aabb(0, 0, Number.NaN, 100) })).toThrow(QuadtreeError);
+    expectQuadtreeError(
+      () => createQuadtree({ bounds: aabb(Number.NaN, 0, 100, 100) }),
+      MSG.boundsFinite,
+    );
+    expectQuadtreeError(
+      () => createQuadtree({ bounds: aabb(0, 0, Number.NaN, 100) }),
+      MSG.boundsFinite,
+    );
   });
 
   it("A5. bounds with Infinity throws QuadtreeError", () => {
-    expect(() => createQuadtree({ bounds: aabb(Number.POSITIVE_INFINITY, 0, 100, 100) })).toThrow(
-      QuadtreeError,
+    expectQuadtreeError(
+      () => createQuadtree({ bounds: aabb(Number.POSITIVE_INFINITY, 0, 100, 100) }),
+      MSG.boundsFinite,
     );
-    expect(() => createQuadtree({ bounds: aabb(0, 0, Number.POSITIVE_INFINITY, 100) })).toThrow(
-      QuadtreeError,
+    expectQuadtreeError(
+      () => createQuadtree({ bounds: aabb(0, 0, Number.POSITIVE_INFINITY, 100) }),
+      MSG.boundsFinite,
     );
   });
 
   it("A6. bounds.height <= 0 throws QuadtreeError", () => {
-    expect(() => createQuadtree({ bounds: aabb(0, 0, 100, 0) })).toThrow(QuadtreeError);
-    expect(() => createQuadtree({ bounds: aabb(0, 0, 100, -5) })).toThrow(QuadtreeError);
+    expectQuadtreeError(() => createQuadtree({ bounds: aabb(0, 0, 100, 0) }), MSG.boundsHeight);
+    expectQuadtreeError(() => createQuadtree({ bounds: aabb(0, 0, 100, -5) }), MSG.boundsHeight);
   });
 
   it("A7. invalid maxObjects throws QuadtreeError", () => {
-    expect(() => createQuadtree({ bounds: aabb(0, 0, 100, 100), maxObjects: 0 })).toThrow(
-      QuadtreeError,
+    expectQuadtreeError(
+      () => createQuadtree({ bounds: aabb(0, 0, 100, 100), maxObjects: 0 }),
+      MSG.maxObjects,
     );
   });
 
   it("A8. invalid maxLevels throws QuadtreeError", () => {
-    expect(() => createQuadtree({ bounds: aabb(0, 0, 100, 100), maxLevels: 0 })).toThrow(
-      QuadtreeError,
+    expectQuadtreeError(
+      () => createQuadtree({ bounds: aabb(0, 0, 100, 100), maxLevels: 0 }),
+      MSG.maxLevels,
     );
   });
 
@@ -106,6 +143,80 @@ describe("A. Construction & validation", () => {
     const box = aabb(100, 100, 32, 32);
     qt.insert(box);
     expect(qt.retrieve(aabb(0, 0, 800, 600))).toContain(box);
+  });
+
+  it("A11. a missing or non-object options argument throws QuadtreeError, not TypeError", () => {
+    // Regression: `const { bounds } = opts` leaked a bare TypeError.
+    for (const opts of [undefined, null, 42, "bounds", true]) {
+      expectQuadtreeError(
+        () => createQuadtree(opts as unknown as Parameters<typeof createQuadtree>[0]),
+        MSG.options,
+      );
+    }
+  });
+
+  it("A12. a missing or non-object bounds throws QuadtreeError, not TypeError", () => {
+    // Regression: `bounds.x` on a missing bounds leaked a bare TypeError.
+    for (const bounds of [undefined, null, 0, "0,0,10,10"]) {
+      expectQuadtreeError(
+        () => createQuadtree({ bounds } as unknown as Parameters<typeof createQuadtree>[0]),
+        MSG.boundsObject,
+      );
+    }
+    expectQuadtreeError(
+      () => createQuadtree({} as unknown as Parameters<typeof createQuadtree>[0]),
+      MSG.boundsObject,
+    );
+  });
+
+  it("A13. QuadtreeError reports its class name and the package prefix", () => {
+    let caught: unknown;
+    try {
+      createQuadtree({ bounds: aabb(0, 0, 100, 100), maxLevels: 1.5 });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(QuadtreeError);
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).name).toBe("QuadtreeError");
+    expect((caught as Error).message).toMatch(MSG.maxLevels);
+  });
+
+  it("A14. getter-backed bounds with a non-dyadic negative origin round-trip inserts", () => {
+    class GetterBounds implements AABB {
+      readonly #x = -0.3;
+      readonly #y = -0.7;
+      readonly #w = 2.4;
+      readonly #h = 0.2;
+      get x(): number {
+        return this.#x;
+      }
+      get y(): number {
+        return this.#y;
+      }
+      get width(): number {
+        return this.#w;
+      }
+      get height(): number {
+        return this.#h;
+      }
+    }
+    const bounds = new GetterBounds();
+    const qt = createQuadtree({ bounds, maxObjects: 1, maxLevels: 8 });
+    const x1 = bounds.x + bounds.width;
+    const y1 = bounds.y + bounds.height;
+    const objs: AABB[] = [];
+    for (let i = 0; i < 7; i++) {
+      for (let j = 0; j < 3; j++) {
+        objs.push(aabb(-0.3 + i * 0.33, -0.7 + j * 0.061, 0.07, 0.013));
+      }
+    }
+    const sx = nextDown(x1);
+    const sy = nextDown(y1);
+    objs.push(aabb(sx, sy, x1 - sx, y1 - sy), aabb(sx, sy, 0, 0));
+    for (const o of objs) qt.insert(o);
+    for (const o of objs) expect(qt.retrieve(o)).toContain(o);
+    expect(new Set(qt.retrieve(bounds))).toEqual(new Set(objs));
   });
 });
 
@@ -731,6 +842,59 @@ describe("I. retrieveInto behaviour", () => {
     expect(bufSe).not.toContain(nw);
     expect(new Set(all)).toEqual(new Set([nw, se]));
   });
+
+  it("I15. a target that is not an array throws QuadtreeError before anything is written", () => {
+    // Regression: `target.length = 0` / `target.push` leaked a bare TypeError
+    // for null or primitive targets, and for non-array objects once a
+    // candidate matched.
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    qt.insert(aabb(10, 10, 20, 20));
+    const region = aabb(0, 0, 800, 600);
+    for (const target of [null, undefined, 7, "buf"]) {
+      expectQuadtreeError(() => qt.retrieveInto(region, target as unknown as AABB[]), MSG.target);
+    }
+    const arrayLike = { length: 3 };
+    expectQuadtreeError(() => qt.retrieveInto(region, arrayLike as unknown as AABB[]), MSG.target);
+    expect(arrayLike.length).toBe(3);
+  });
+
+  it("I16. 1,000 calls with one reused buffer keep identity, length and no holes", () => {
+    const qt = createQuadtree({ bounds: aabb(-0.3, -0.7, 2.4, 1.9), maxObjects: 3, maxLevels: 6 });
+    // Deterministic LCG so the tree content and the query both vary per call.
+    let seed = 12345;
+    const rand = (): number => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    const stale = aabb(99, 99, 1, 1);
+    const buf: AABB[] = Array.from({ length: 64 }, () => stale);
+    let ok = true;
+    for (let call = 0; call < 1000; call++) {
+      if (call % 10 === 0) {
+        qt.clear();
+        const n = Math.floor(rand() * 40);
+        for (let i = 0; i < n; i++) {
+          qt.insert(aabb(-0.3 + rand() * 2.4, -0.7 + rand() * 1.9, rand() * 0.2, rand() * 0.2));
+        }
+      }
+      const region = aabb(-0.5 + rand() * 2.8, -0.9 + rand() * 2.3, rand() * 1.5, rand() * 1.5);
+      const expected = qt.retrieve(region);
+      const ret = qt.retrieveInto(region, buf);
+      let holes = 0;
+      for (let i = 0; i < buf.length; i++) if (!(i in buf) || buf[i] === undefined) holes++;
+      if (
+        ret !== buf ||
+        buf.length !== expected.length ||
+        holes !== 0 ||
+        buf.includes(stale) ||
+        !expected.every((o) => buf.includes(o))
+      ) {
+        ok = false;
+        break;
+      }
+    }
+    expect(ok).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -740,52 +904,52 @@ describe("I. retrieveInto behaviour", () => {
 describe("J. insert() input validation", () => {
   it("J1. insert with negative width throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.insert(aabb(10, 10, -1, 20))).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.insert(aabb(10, 10, -1, 20)), MSG.objWidth);
   });
 
   it("J2. insert with negative height throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.insert(aabb(10, 10, 20, -1))).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.insert(aabb(10, 10, 20, -1)), MSG.objHeight);
   });
 
   it("J3. insert with NaN x throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.insert(aabb(Number.NaN, 10, 20, 20))).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.insert(aabb(Number.NaN, 10, 20, 20)), MSG.objFinite);
   });
 
   it("J4. insert with NaN y throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.insert(aabb(10, Number.NaN, 20, 20))).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.insert(aabb(10, Number.NaN, 20, 20)), MSG.objFinite);
   });
 
   it("J5. insert with NaN width throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.insert(aabb(10, 10, Number.NaN, 20))).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.insert(aabb(10, 10, Number.NaN, 20)), MSG.objFinite);
   });
 
   it("J6. insert with NaN height throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.insert(aabb(10, 10, 20, Number.NaN))).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.insert(aabb(10, 10, 20, Number.NaN)), MSG.objFinite);
   });
 
   it("J7. insert with Infinity x throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.insert(aabb(Number.POSITIVE_INFINITY, 10, 20, 20))).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.insert(aabb(Number.POSITIVE_INFINITY, 10, 20, 20)), MSG.objFinite);
   });
 
   it("J8. insert with -Infinity y throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.insert(aabb(10, Number.NEGATIVE_INFINITY, 20, 20))).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.insert(aabb(10, Number.NEGATIVE_INFINITY, 20, 20)), MSG.objFinite);
   });
 
   it("J9. insert with Infinity width throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.insert(aabb(10, 10, Number.POSITIVE_INFINITY, 20))).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.insert(aabb(10, 10, Number.POSITIVE_INFINITY, 20)), MSG.objFinite);
   });
 
   it("J10. insert with Infinity height throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.insert(aabb(10, 10, 20, Number.POSITIVE_INFINITY))).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.insert(aabb(10, 10, 20, Number.POSITIVE_INFINITY)), MSG.objFinite);
   });
 
   it("J11. zero-extent object (width=0, height=0) is accepted — not over-rejected", () => {
@@ -814,12 +978,12 @@ describe("J. insert() input validation", () => {
 
   it("J14. insert(null) throws QuadtreeError (not a raw TypeError)", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.insert(null as unknown as AABB)).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.insert(null as unknown as AABB), MSG.objFinite);
   });
 
   it("J15. insert(undefined) throws QuadtreeError (not a raw TypeError)", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.insert(undefined as unknown as AABB)).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.insert(undefined as unknown as AABB), MSG.objFinite);
   });
 });
 
@@ -995,62 +1159,72 @@ describe("K. Non-origin bounds", () => {
 describe("L. retrieve / retrieveInto adversarial region validation", () => {
   it("L1. retrieve with NaN x throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.retrieve(aabb(Number.NaN, 0, 100, 100))).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.retrieve(aabb(Number.NaN, 0, 100, 100)), MSG.regionFinite);
   });
 
   it("L2. retrieve with NaN y throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.retrieve(aabb(0, Number.NaN, 100, 100))).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.retrieve(aabb(0, Number.NaN, 100, 100)), MSG.regionFinite);
   });
 
   it("L3. retrieve with NaN width throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.retrieve(aabb(0, 0, Number.NaN, 100))).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.retrieve(aabb(0, 0, Number.NaN, 100)), MSG.regionFinite);
   });
 
   it("L4. retrieve with NaN height throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.retrieve(aabb(0, 0, 100, Number.NaN))).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.retrieve(aabb(0, 0, 100, Number.NaN)), MSG.regionFinite);
   });
 
   it("L5. retrieve with Infinity x throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.retrieve(aabb(Number.POSITIVE_INFINITY, 0, 100, 100))).toThrow(QuadtreeError);
+    expectQuadtreeError(
+      () => qt.retrieve(aabb(Number.POSITIVE_INFINITY, 0, 100, 100)),
+      MSG.regionFinite,
+    );
   });
 
   it("L6. retrieve with -Infinity y throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.retrieve(aabb(0, Number.NEGATIVE_INFINITY, 100, 100))).toThrow(QuadtreeError);
+    expectQuadtreeError(
+      () => qt.retrieve(aabb(0, Number.NEGATIVE_INFINITY, 100, 100)),
+      MSG.regionFinite,
+    );
   });
 
   it("L7. retrieve with negative width throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.retrieve(aabb(100, 100, -1, 100))).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.retrieve(aabb(100, 100, -1, 100)), MSG.regionWidth);
   });
 
   it("L8. retrieve with negative height throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
-    expect(() => qt.retrieve(aabb(100, 100, 100, -1))).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.retrieve(aabb(100, 100, 100, -1)), MSG.regionHeight);
   });
 
   it("L9. retrieveInto with NaN x throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
     const buf: AABB[] = [];
-    expect(() => qt.retrieveInto(aabb(Number.NaN, 0, 100, 100), buf)).toThrow(QuadtreeError);
+    expectQuadtreeError(
+      () => qt.retrieveInto(aabb(Number.NaN, 0, 100, 100), buf),
+      MSG.regionFinite,
+    );
   });
 
   it("L10. retrieveInto with Infinity width throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
     const buf: AABB[] = [];
-    expect(() => qt.retrieveInto(aabb(0, 0, Number.POSITIVE_INFINITY, 100), buf)).toThrow(
-      QuadtreeError,
+    expectQuadtreeError(
+      () => qt.retrieveInto(aabb(0, 0, Number.POSITIVE_INFINITY, 100), buf),
+      MSG.regionFinite,
     );
   });
 
   it("L11. retrieveInto with negative height throws QuadtreeError", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
     const buf: AABB[] = [];
-    expect(() => qt.retrieveInto(aabb(0, 0, 100, -5), buf)).toThrow(QuadtreeError);
+    expectQuadtreeError(() => qt.retrieveInto(aabb(0, 0, 100, -5), buf), MSG.regionHeight);
   });
 
   it("L12. retrieve with zero width (zero-extent region) is valid — does not throw", () => {
@@ -1061,6 +1235,40 @@ describe("L. retrieve / retrieveInto adversarial region validation", () => {
   it("L13. retrieve with zero height (zero-extent region) is valid — does not throw", () => {
     const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
     expect(() => qt.retrieve(aabb(50, 50, 100, 0))).not.toThrow();
+  });
+
+  it("L14. region fields are read once: the validated values are the walked values", () => {
+    // Regression (TOCTOU): validateRegion() read the fields, then the walk
+    // read them again, so a getter finite during validation but NaN on the
+    // second read passed validation and silently matched no node.
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const box = aabb(100, 100, 32, 32);
+    qt.insert(box);
+    let reads = 0;
+    const region = {
+      y: 0,
+      width: 800,
+      height: 600,
+      get x(): number {
+        reads++;
+        return reads === 1 ? 0 : Number.NaN;
+      },
+    };
+    expect(qt.retrieve(region)).toEqual([box]);
+    expect(reads).toBe(1);
+    reads = 0;
+    const buf: AABB[] = [];
+    expect(qt.retrieveInto(region, buf)).toEqual([box]);
+    expect(reads).toBe(1);
+  });
+
+  it("L15. a nullish region throws QuadtreeError, not TypeError", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const buf: AABB[] = [];
+    for (const region of [null, undefined]) {
+      expectQuadtreeError(() => qt.retrieve(region as unknown as AABB), MSG.regionFinite);
+      expectQuadtreeError(() => qt.retrieveInto(region as unknown as AABB, buf), MSG.regionFinite);
+    }
   });
 });
 
@@ -1157,5 +1365,69 @@ describe("N. Precision-bound subdivision depth", () => {
     expect(pointQuery.length).toBe(63);
     const fullQuery = qt.retrieve(aabb(0, 0, 800, 600));
     expect(fullQuery.length).toBe(63);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// O. Shared node edges (no ulp drift on right/bottom children)
+// ---------------------------------------------------------------------------
+
+describe("O. Shared node edges", () => {
+  it("O1. non-dyadic negative-origin bounds: an object flush on the right/bottom edge is retrievable by its own box", () => {
+    // Regression: subdivide() rebuilt a right child as `x + w` with extent
+    // `w`, so its outer edge was `(x + w) + w`. For x = -0.3, width = 2.4
+    // that is 2.0999999999999996, one ulp short of the root's x + width
+    // (2.1); y = -0.7, height = 0.2 drifts the same way. An object in that
+    // sliver passed the root gate, was routed into the right/bottom child,
+    // and then matched no node on retrieve().
+    const qt = createQuadtree({ bounds: aabb(-0.3, -0.7, 2.4, 0.2), maxObjects: 1, maxLevels: 4 });
+    const x1 = -0.3 + 2.4;
+    const y1 = -0.7 + 0.2;
+    const sx = nextDown(x1);
+    const sy = nextDown(y1);
+    const corner = aabb(sx, sy, x1 - sx, y1 - sy);
+    expect(corner.x + corner.width).toBe(x1); // flush on the exclusive edge
+    expect(corner.y + corner.height).toBe(y1);
+    const cornerPoint = aabb(sx, sy, 0, 0);
+    const right = aabb(sx, -0.65, x1 - sx, 0.01);
+    const bottom = aabb(0.5, sy, 0.25, y1 - sy);
+    qt.insert(aabb(-0.2, -0.68, 0.1, 0.01)); // filler: forces the root to subdivide
+    for (const o of [corner, cornerPoint, right, bottom]) qt.insert(o);
+    for (const o of [corner, cornerPoint, right, bottom]) {
+      expect(qt.retrieve(o)).toContain(o);
+      const buf: AABB[] = [];
+      expect(qt.retrieveInto(o, buf)).toContain(o);
+    }
+  });
+
+  it("O2. the flush corner object survives every depth from 1 to 12", () => {
+    for (let maxLevels = 1; maxLevels <= 12; maxLevels++) {
+      const qt = createQuadtree({ bounds: aabb(-0.3, -0.7, 2.4, 0.2), maxObjects: 1, maxLevels });
+      const x1 = -0.3 + 2.4;
+      const y1 = -0.7 + 0.2;
+      const sx = nextDown(x1);
+      const sy = nextDown(y1);
+      const corner = aabb(sx, sy, x1 - sx, y1 - sy);
+      qt.insert(corner);
+      // Fillers march toward the corner so every level splits next to it.
+      for (let k = 1; k <= maxLevels; k++) {
+        qt.insert(aabb(x1 - 2.4 / 2 ** (k + 1), y1 - 0.2 / 2 ** (k + 1), 0, 0));
+      }
+      expect(qt.retrieve(corner)).toContain(corner);
+    }
+  });
+
+  it("O3. a point on a non-dyadic split line is routed to the child whose edge it is", () => {
+    // quadrantIndices and subdivide share one midpoint formula, so a point
+    // exactly on the split line lands in the right/bottom child and that
+    // child's stored min edge is the same float.
+    const qt = createQuadtree({ bounds: aabb(-0.3, -0.7, 2.4, 0.2), maxObjects: 1, maxLevels: 4 });
+    const midX = -0.3 + (-0.3 + 2.4 - -0.3) / 2;
+    const midY = -0.7 + (-0.7 + 0.2 - -0.7) / 2;
+    const onMid = aabb(midX, midY, 0, 0);
+    qt.insert(aabb(-0.25, -0.69, 0.01, 0.01));
+    qt.insert(onMid);
+    expect(qt.retrieve(onMid)).toContain(onMid);
+    expect(qt.retrieve(aabb(midX, midY, 0.01, 0.01))).toContain(onMid);
   });
 });

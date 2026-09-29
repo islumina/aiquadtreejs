@@ -2,7 +2,7 @@
 
 小型 2D quadtree，用於每 frame 重建的 collision broadphase。插入 AABB、取回候選物件，精確碰撞檢查由呼叫端負責。
 
-> **狀態：0.5.9 - 穩定 1.0 軌道 API。** root entry 是公開 API。
+> **狀態：0.6.0 - 穩定 1.0 軌道 API。** root entry 是公開 API。
 
 ## 安裝
 
@@ -43,17 +43,18 @@ const candidates = tree.retrieve({ x: 80, y: 80, width: 120, height: 120 });
 - `createQuadtree<T extends AABB>({ bounds, maxObjects?, maxLevels? })` 建立 tree。
 - `insert(obj)` 將物件參照存進重疊 nodes。
 - `retrieve(region)` 回傳 dedup 後的 broadphase candidates。
-- `retrieveInto(region, target)` 重用呼叫端提供的 result array。
+- `retrieveInto(region, target)` 重用呼叫端提供的 result array；`target` 必須是 array。
 - `clear()` 清空 tree 與 scratch buffers，準備下一 frame。
 - `dispose()` 是可重複呼叫的永久 teardown。
-- Errors：`QuadtreeError`、`QuadtreeDisposedError`。
+- Errors：`QuadtreeError`、`QuadtreeDisposedError`。每個 `QuadtreeError` 訊息都以 `aiquadtreejs: ` 開頭；請比對 class，不要比對完整文字。
 
 ## Model
 
 - 座標採 right-open：`{ x, y, width, height }` 覆蓋 `[x, x + width)` 與 `[y, y + height)`。
-- 這只是 broadphase。回傳候選物件不保證真的與 query region 相交。
+- 這只是 broadphase。回傳候選物件不保證真的與 query region 相交，但在 `bounds` 內與 region 重疊的每個已插入物件都一定會回傳。
 - 預期用法是每 frame 重建：`clear()`、插入 active bodies、query。
 - 跨 quadrant 的物件可能存在多個 child nodes；結果會 dedup。
+- Node 直接儲存邊界。右側與下側 child 共用 parent 精確的 `x + width` 與 `y + height`，所以像 `x: -0.3, width: 2.4` 這類帶小數的 bounds 在邊緣也不會遺漏物件。
 - `maxLevels` 沒有硬上限。很高的值加上 spanning objects 可能建立巨大 node 數。
 - 一旦 node 的中點在浮點數中無法被表示（通常在深度約 45-52 左右），subdivision 也會停止，所以再高的 `maxLevels` 也不會讓密集的 point cluster 從 `retrieve()` 中悄悄消失。
 
@@ -61,8 +62,9 @@ const candidates = tree.retrieve({ x: 80, y: 80, width: 120, height: 120 });
 
 - 零尺寸 point（width = 0, height = 0）遵循 right-open 的 `[x, x+width)` 語意：剛好落在 minimum `x/y` 邊界上的 point 屬於**包含**範圍，會被正確插入與取回；落在 exclusive 的 maximum 邊界上的 point 則在 root 之外，會被忽略。（0.5.8 之前是已知 bug，現已修正。）
 - 完全在 bounds 外的物件不會被 retrieve 到。
-- 負 width/height 與非有限座標會 throw。
+- 缺少 options 物件或 `bounds`、負 width/height、非有限座標，以及不是 array 的 `retrieveInto()` target，都會丟 `QuadtreeError`。
 - `retrieveInto()` 會先清空 target array 再寫入結果。
+- 已插入的物件以參照儲存，所在 node 細分時會重新讀取座標。在下一次 `clear()` 之前不要移動已插入的物件；請改為重建 tree。
 - `dispose()` 後除了 `dispose()` 本身外，所有方法都會丟 `QuadtreeDisposedError`。
 
 ## AI Context

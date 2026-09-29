@@ -2,7 +2,7 @@
 
 Tiny 2D quadtree for per-frame rebuild collision broadphase. Insert AABBs, retrieve candidates, then run precise collision checks yourself.
 
-> **Status: 0.5.9 - stable 1.0-track surface.** The root entry is the public API.
+> **Status: 0.6.0 - stable 1.0-track surface.** The root entry is the public API.
 
 ## Install
 
@@ -43,17 +43,18 @@ const candidates = tree.retrieve({ x: 80, y: 80, width: 120, height: 120 });
 - `createQuadtree<T extends AABB>({ bounds, maxObjects?, maxLevels? })` creates a tree.
 - `insert(obj)` stores an object reference in overlapping nodes.
 - `retrieve(region)` returns a deduplicated broadphase candidate array.
-- `retrieveInto(region, target)` reuses a caller-owned result array.
+- `retrieveInto(region, target)` reuses a caller-owned result array; `target` must be an array.
 - `clear()` empties the tree for the next frame and clears scratch buffers.
 - `dispose()` is idempotent permanent teardown.
-- Errors: `QuadtreeError`, `QuadtreeDisposedError`.
+- Errors: `QuadtreeError`, `QuadtreeDisposedError`. Every `QuadtreeError` message starts with `aiquadtreejs: `; match on the class, not the exact text.
 
 ## Model
 
 - Coordinates are right-open: `{ x, y, width, height }` covers `[x, x + width)` and `[y, y + height)`.
-- This is a broadphase only. Returned candidates may not actually overlap the query region.
+- This is a broadphase only. Returned candidates may not actually overlap the query region, but every inserted object that overlaps the region inside `bounds` is returned.
 - Expected usage is per-frame rebuild: `clear()`, insert active bodies, query.
 - Objects spanning quadrant boundaries can be stored in multiple child nodes; results are deduplicated.
+- Nodes store their edges. Right/bottom children share the parent's exact `x + width` / `y + height`, so fractional bounds such as `x: -0.3, width: 2.4` lose nothing at the edge.
 - `maxLevels` has no hard cap. Very high values plus spanning objects can create huge node counts.
 - Subdivision also stops once a node's midpoint is no longer representable in floating point (typically around depth 45-52), so a very high `maxLevels` cannot make a dense point cluster silently vanish from `retrieve()`.
 
@@ -61,8 +62,9 @@ const candidates = tree.retrieve({ x: 80, y: 80, width: 120, height: 120 });
 
 - Zero-size points (width = 0, height = 0) follow right-open `[x, x+width)` semantics: a point on the minimum `x/y` boundary is **inclusive** and is inserted/retrieved correctly; a point at the exclusive maximum edge is outside the root and is ignored. (Was a bug before 0.5.8; fixed.)
 - Fully outside objects are ignored by retrieval.
-- Negative width/height and non-finite coordinates throw.
+- `QuadtreeError` is thrown for a missing options object or `bounds`, negative width/height, non-finite coordinates, and a `retrieveInto()` target that is not an array.
 - `retrieveInto()` clears the target array before writing results.
+- Inserted objects are stored by reference and re-read when their node subdivides. Do not move an inserted object until the next `clear()`; rebuild the tree instead.
 - After `dispose()`, all methods except `dispose()` throw `QuadtreeDisposedError`.
 
 ## AI Context

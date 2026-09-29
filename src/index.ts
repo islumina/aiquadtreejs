@@ -30,6 +30,11 @@ export interface QuadtreeOptions {
    * Outer bounds. Objects partially outside `bounds` still insert into
    * whichever child nodes they overlap; objects fully outside are ignored
    * by `retrieve()` because no node overlaps them.
+   *
+   * Each field is read once, so accessor-backed bounds (e.g. PixiJS v8
+   * `Bounds`) work. The root's exclusive edges are computed once as
+   * `x + width` and `y + height`, and every right/bottom child shares its
+   * parent's exact edge.
    */
   bounds: AABB;
 
@@ -83,9 +88,10 @@ export interface Quadtree<T extends AABB> {
    * in multiple leaf nodes when it spans quadrant boundaries; `retrieve()`
    * deduplicates with a `Set` so the caller sees it exactly once.
    *
-   * @throws {@link QuadtreeError} if any of `x`, `y`, `width`, or `height`
-   *   is non-finite (`NaN`, `Infinity`, `-Infinity`), or if `width` or
-   *   `height` is negative. Zero-extent objects (points / lines) are valid.
+   * @throws {@link QuadtreeError} if `obj` is `null` / `undefined`, if any of
+   *   `x`, `y`, `width`, or `height` is non-finite (`NaN`, `Infinity`,
+   *   `-Infinity`), or if `width` or `height` is negative. Zero-extent
+   *   objects (points / lines) are valid.
    */
   insert(obj: T): void;
 
@@ -94,10 +100,14 @@ export interface Quadtree<T extends AABB> {
    * deduplicated. The result is a **broadphase**: callers must still run
    * a precise AABB or pixel-level hit test on each candidate.
    *
-   * @throws {@link QuadtreeError} if any of `region.x`, `region.y`,
-   *   `region.width`, or `region.height` is non-finite (`NaN`, `Infinity`,
-   *   `-Infinity`), or if `region.width` or `region.height` is negative.
-   *   Zero-extent regions are valid (they still query any overlapping node).
+   * Each `region` field is read once and the walk uses the validated values,
+   * so an accessor-backed region behaves like a plain object.
+   *
+   * @throws {@link QuadtreeError} if `region` is `null` / `undefined`, if any
+   *   of `region.x`, `region.y`, `region.width`, or `region.height` is
+   *   non-finite (`NaN`, `Infinity`, `-Infinity`), or if `region.width` or
+   *   `region.height` is negative. Zero-extent regions are valid (they still
+   *   query any overlapping node).
    */
   retrieve(region: AABB): T[];
 
@@ -131,10 +141,9 @@ export interface Quadtree<T extends AABB> {
    * unbounded fresh-array allocation `retrieve()` makes, but they do not
    * amortise away to literally zero.
    *
-   * @throws {@link QuadtreeError} if any of `region.x`, `region.y`,
-   *   `region.width`, or `region.height` is non-finite (`NaN`, `Infinity`,
-   *   `-Infinity`), or if `region.width` or `region.height` is negative.
-   *   Zero-extent regions are valid.
+   * @throws {@link QuadtreeError} if `target` is not an array (checked
+   *   before `target` is touched), or for the same `region` violations as
+   *   {@link retrieve}. Zero-extent regions are valid.
    */
   retrieveInto(region: AABB, target: T[]): T[];
 
@@ -164,11 +173,17 @@ export interface Quadtree<T extends AABB> {
 }
 
 /**
- * Recoverable quadtree error — thrown by `createQuadtree` for invalid
- * construction options, by `insert()` for precondition violations
- * (e.g. an inserted object with non-finite coordinates or negative
- * `width` / `height`), and by `retrieve()` / `retrieveInto()` for regions
- * with non-finite fields or negative `width` / `height`.
+ * Recoverable quadtree error — thrown by `createQuadtree` for a missing or
+ * non-object options argument, a missing or non-object `bounds`, or invalid
+ * construction options; by `insert()` for precondition violations (e.g. an
+ * inserted object with non-finite coordinates or negative `width` /
+ * `height`); by `retrieve()` / `retrieveInto()` for regions with non-finite
+ * fields or negative `width` / `height`; and by `retrieveInto()` for a
+ * `target` that is not an array.
+ *
+ * Every message starts with `aiquadtreejs: ` (e.g.
+ * `aiquadtreejs: maxObjects must be a positive integer`) and `name` is
+ * `"QuadtreeError"`. Match on the class, not the exact text.
  *
  * @public
  */
@@ -189,8 +204,17 @@ export class QuadtreeDisposedError extends Error {
 // Internal types
 // ---------------------------------------------------------------------------
 
+// A node covers the right-open rectangle [x0, x1) x [y0, y1). Edges are
+// stored, never re-derived from a width: the root takes `x1 = x + width`
+// once from the validated bounds, and each child takes its parent's exact
+// edges and midpoint. Recomputing a right child's edge as `(x + w) + w` can
+// land an ulp short of the parent's `x + width`, and an object routed into
+// that sliver would then be missed by `retrieve()`.
 interface Node<T extends AABB> {
-  bounds: AABB;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
   level: number;
   objects: T[];
   children: Node<T>[];
@@ -207,37 +231,54 @@ interface State<T extends AABB> {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-// Node/rect overlap test used at the insert root gate and by retrieve's
-// node walk (with the query region as `obj`).
+function makeNode<T extends AABB>(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  level: number,
+): Node<T> {
+  return { x0, y0, x1, y1, level, objects: [], children: [] };
+}
+
+// Split line of [a, b). subdivide, quadrantIndices and isSplitRepresentable
+// all use this one formula, so the routing midpoint is bit-for-bit the edge
+// the children were built with.
+function mid(a: number, b: number): number {
+  return a + (b - a) / 2;
+}
+
+// Node/box overlap test used at the insert root gate and by retrieve's
+// node walk (with the query region as `box`).
 //
 // Right-open semantics for positive-extent dimensions:
-//   overlaps iff obj.x < bounds.x + bounds.width AND obj.x + obj.width > bounds.x
+//   overlaps iff box.x < node.x1 AND box.x + box.width > node.x0
 //
 // Zero-extent exception for the minimum edge: a zero-size point sitting exactly
-// on bounds.x or bounds.y satisfies neither side of the strict-inequality test,
+// on node.x0 or node.y0 satisfies neither side of the strict-inequality test,
 // so it would be silently dropped (or, as a query, match no node). Instead, per axis:
-//   - zero-extent: overlaps iff coordinate is within [bounds.min, bounds.max) —
+//   - zero-extent: overlaps iff coordinate is within [x0, x1) —
 //     inclusive minimum, exclusive maximum (right-open, matching the box contract)
-//   - positive-extent: keep the existing strict right-open overlap (unchanged)
+//   - positive-extent: keep the strict right-open overlap
 //
 // This matches quadrantIndices' own zero-extent fallback (obj.x >= midX etc.)
 // and preserves the invariant that a positive-size object flush on the right/bottom
 // exclusive boundary stays rejected.
-function nodeOverlaps(bounds: AABB, obj: AABB): boolean {
+function nodeOverlaps<T extends AABB>(node: Node<T>, box: AABB): boolean {
   const inX =
-    obj.width === 0
-      ? obj.x >= bounds.x && obj.x < bounds.x + bounds.width
-      : obj.x < bounds.x + bounds.width && obj.x + obj.width > bounds.x;
+    box.width === 0
+      ? box.x >= node.x0 && box.x < node.x1
+      : box.x < node.x1 && box.x + box.width > node.x0;
   const inY =
-    obj.height === 0
-      ? obj.y >= bounds.y && obj.y < bounds.y + bounds.height
-      : obj.y < bounds.y + bounds.height && obj.y + obj.height > bounds.y;
+    box.height === 0
+      ? box.y >= node.y0 && box.y < node.y1
+      : box.y < node.y1 && box.y + box.height > node.y0;
   return inX && inY;
 }
 
 function quadrantIndices<T extends AABB>(node: Node<T>, obj: AABB): number[] {
-  const midX = node.bounds.x + node.bounds.width / 2;
-  const midY = node.bounds.y + node.bounds.height / 2;
+  const midX = mid(node.x0, node.x1);
+  const midY = mid(node.y0, node.y1);
   // Zero-extent objects (points) sitting exactly on midX / midY would fall
   // through both `<` and `>` checks; treat the point as belonging to the
   // right/bottom side so it doesn't silently disappear.
@@ -254,16 +295,16 @@ function quadrantIndices<T extends AABB>(node: Node<T>, obj: AABB): number[] {
 }
 
 function subdivide<T extends AABB>(node: Node<T>): void {
-  const w = node.bounds.width / 2;
-  const h = node.bounds.height / 2;
-  const x = node.bounds.x;
-  const y = node.bounds.y;
+  const { x0, y0, x1, y1 } = node;
+  const midX = mid(x0, x1);
+  const midY = mid(y0, y1);
   const lvl = node.level + 1;
+  // TL, TR, BL, BR. Right/bottom children take the parent's exact x1/y1.
   node.children.push(
-    { bounds: { x, y, width: w, height: h }, level: lvl, objects: [], children: [] },
-    { bounds: { x: x + w, y, width: w, height: h }, level: lvl, objects: [], children: [] },
-    { bounds: { x, y: y + h, width: w, height: h }, level: lvl, objects: [], children: [] },
-    { bounds: { x: x + w, y: y + h, width: w, height: h }, level: lvl, objects: [], children: [] },
+    makeNode(x0, y0, midX, midY, lvl),
+    makeNode(midX, y0, x1, midY, lvl),
+    makeNode(x0, midY, midX, y1, lvl),
+    makeNode(midX, midY, x1, y1, lvl),
   );
   for (const obj of node.objects) {
     for (const i of quadrantIndices(node, obj)) {
@@ -274,24 +315,18 @@ function subdivide<T extends AABB>(node: Node<T>): void {
   node.objects.length = 0;
 }
 
-// True while node.bounds still has a representable midpoint on both axes,
-// i.e. `x + width / 2` actually lands strictly between `x` and `x + width`
-// in floating point (and likewise for y). Once a node's width/height falls
-// below the ulp of its coordinate, the computed midpoint rounds back to `x`
-// (or up to `x + width`), so `subdivide()` would create children that are
-// not smaller than their parent — an infinite-seeming split that silently
-// stops matching queries instead of erroring. Below this point further
-// subdivision is skipped and the node stays a terminal leaf even if
-// `node.level < maxLevels`.
-function isSplitRepresentable(bounds: AABB): boolean {
-  const midX = bounds.x + bounds.width / 2;
-  const midY = bounds.y + bounds.height / 2;
-  return (
-    midX > bounds.x &&
-    midX < bounds.x + bounds.width &&
-    midY > bounds.y &&
-    midY < bounds.y + bounds.height
-  );
+// True while the node still has a representable midpoint on both axes,
+// i.e. `mid(x0, x1)` actually lands strictly between `x0` and `x1` in
+// floating point (and likewise for y). Once a node's extent falls below the
+// ulp of its coordinate, the computed midpoint rounds onto `x0` or `x1`, so
+// `subdivide()` would create children that are not smaller than their
+// parent — an infinite-seeming split that silently stops matching queries
+// instead of erroring. Below this point further subdivision is skipped and
+// the node stays a terminal leaf even if `node.level < maxLevels`.
+function isSplitRepresentable<T extends AABB>(node: Node<T>): boolean {
+  const midX = mid(node.x0, node.x1);
+  const midY = mid(node.y0, node.y1);
+  return node.x0 < midX && midX < node.x1 && node.y0 < midY && midY < node.y1;
 }
 
 function insertNode<T extends AABB>(
@@ -305,7 +340,7 @@ function insertNode<T extends AABB>(
   // nodeOverlaps accepts zero-size points/lines sitting exactly on the
   // minimum (left/top) edge with inclusive semantics, whilst positive-size
   // objects retain right-open exclusion on the maximum edge.
-  if (node.level === 0 && !nodeOverlaps(node.bounds, obj)) return;
+  if (node.level === 0 && !nodeOverlaps(node, obj)) return;
   if (node.children.length === 4) {
     for (const i of quadrantIndices(node, obj)) {
       const child = node.children[i];
@@ -314,11 +349,7 @@ function insertNode<T extends AABB>(
     return;
   }
   node.objects.push(obj);
-  if (
-    node.objects.length > maxObjects &&
-    node.level < maxLevels &&
-    isSplitRepresentable(node.bounds)
-  ) {
+  if (node.objects.length > maxObjects && node.level < maxLevels && isSplitRepresentable(node)) {
     subdivide(node);
   }
 }
@@ -368,10 +399,23 @@ function clearNode<T extends AABB>(node: Node<T>): void {
  * // Caller runs a precise hit test on `candidates`.
  * ```
  *
+ * @throws {@link QuadtreeError} if `opts` is not an object, if `opts.bounds`
+ *   is not an object, if any bounds field is non-finite, if `bounds.width` or
+ *   `bounds.height` is not positive, or if `maxObjects` / `maxLevels` is not
+ *   a positive integer. Checked in that order, before the tree exists.
+ *
  * @public
  */
 export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<T> {
-  const { bounds } = opts;
+  if (opts === null || typeof opts !== "object") {
+    throw new QuadtreeError("aiquadtreejs: options must be an object with bounds");
+  }
+  const bounds = opts.bounds;
+  if (bounds === null || typeof bounds !== "object") {
+    throw new QuadtreeError(
+      "aiquadtreejs: bounds must be an object with finite numeric x, y, width and height",
+    );
+  }
   const maxObjects = opts.maxObjects ?? 10;
   const maxLevels = opts.maxLevels ?? 4;
   // Read each field once: accessor-backed bounds (e.g. PixiJS v8 `Bounds`)
@@ -388,28 +432,23 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
     !Number.isFinite(bw) ||
     !Number.isFinite(bh)
   ) {
-    throw new QuadtreeError("bounds must contain finite numbers");
+    throw new QuadtreeError("aiquadtreejs: bounds must contain finite numbers");
   }
   if (bw <= 0) {
-    throw new QuadtreeError("bounds.width must be > 0");
+    throw new QuadtreeError("aiquadtreejs: bounds.width must be > 0");
   }
   if (bh <= 0) {
-    throw new QuadtreeError("bounds.height must be > 0");
+    throw new QuadtreeError("aiquadtreejs: bounds.height must be > 0");
   }
   if (!Number.isInteger(maxObjects) || maxObjects <= 0) {
-    throw new QuadtreeError("maxObjects must be a positive integer");
+    throw new QuadtreeError("aiquadtreejs: maxObjects must be a positive integer");
   }
   if (!Number.isInteger(maxLevels) || maxLevels <= 0) {
-    throw new QuadtreeError("maxLevels must be a positive integer");
+    throw new QuadtreeError("aiquadtreejs: maxLevels must be a positive integer");
   }
 
   const state: State<T> = {
-    root: {
-      bounds: { x: bx, y: by, width: bw, height: bh },
-      level: 0,
-      objects: [],
-      children: [],
-    },
+    root: makeNode(bx, by, bx + bw, by + bh, 0),
     maxObjects,
     maxLevels,
     disposed: false,
@@ -429,14 +468,14 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
       !Number.isFinite(obj.height)
     ) {
       throw new QuadtreeError(
-        "inserted object must be defined with finite numeric x, y, width and height",
+        "aiquadtreejs: inserted object must be defined with finite numeric x, y, width and height",
       );
     }
     if (obj.width < 0) {
-      throw new QuadtreeError("inserted object width must be >= 0");
+      throw new QuadtreeError("aiquadtreejs: inserted object width must be >= 0");
     }
     if (obj.height < 0) {
-      throw new QuadtreeError("inserted object height must be >= 0");
+      throw new QuadtreeError("aiquadtreejs: inserted object height must be >= 0");
     }
     insertNode(state.root, obj, state.maxObjects, state.maxLevels);
   }
@@ -447,26 +486,39 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
   // synchronously and fully before any subsequent call. Note that
   // scratchSet.clear() still rebuilds the Set's backing table on V8, so this
   // does not make retrieveInto literally allocation-free — see its JSDoc.
-  //
-  // Plain-data assumption (tightened, QDT-B-02): region.x/y/width/height
-  // are read once into locals at the top of retrieveSet, then written into
-  // the reusable scratchRegion. This prevents a structurally-typed region
-  // whose getter calls back into retrieve* from corrupting the shared
-  // scratch mid-walk: any re-entrant call triggered by a getter completes
-  // synchronously during the four reads, before this call touches scratch.
-  // Adversarial-only: plain-object callers (all documented examples) are
-  // unaffected.
   const scratchSet = new Set<T>();
   const scratchStack: Node<T>[] = [];
   const scratchRegion: AABB = { x: 0, y: 0, width: 0, height: 0 };
 
+  // Validate `region` and collect the deduplicated candidates into scratchSet.
+  //
+  // Each region field is read exactly once, validated, and only then copied
+  // into scratchRegion, so an accessor-backed region (e.g. PixiJS v8 `Bounds`)
+  // walks with the values that passed validation, and a getter that calls
+  // back into this tree completes during the four reads, before this call
+  // touches the shared scratch. Optional chaining turns a nullish region into
+  // the same QuadtreeError as a non-finite field.
   function retrieveSet(region: AABB): Set<T> {
-    // Snapshot region fields into locals once so that a getter-bearing
-    // region cannot mutate the walk by re-entering retrieve* mid-DFS.
-    const rx = region.x;
-    const ry = region.y;
-    const rw = region.width;
-    const rh = region.height;
+    const rx = region?.x;
+    const ry = region?.y;
+    const rw = region?.width;
+    const rh = region?.height;
+    if (
+      !Number.isFinite(rx) ||
+      !Number.isFinite(ry) ||
+      !Number.isFinite(rw) ||
+      !Number.isFinite(rh)
+    ) {
+      throw new QuadtreeError(
+        "aiquadtreejs: retrieve region must have finite numeric x, y, width and height",
+      );
+    }
+    if (rw < 0) {
+      throw new QuadtreeError("aiquadtreejs: retrieve region width must be >= 0");
+    }
+    if (rh < 0) {
+      throw new QuadtreeError("aiquadtreejs: retrieve region height must be >= 0");
+    }
     scratchRegion.x = rx;
     scratchRegion.y = ry;
     scratchRegion.width = rw;
@@ -477,47 +529,23 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
     while (scratchStack.length > 0) {
       const node = scratchStack.pop();
       if (node === undefined) continue;
-      if (!nodeOverlaps(node.bounds, scratchRegion)) continue;
+      if (!nodeOverlaps(node, scratchRegion)) continue;
       for (const obj of node.objects) scratchSet.add(obj);
       for (const child of node.children) scratchStack.push(child);
     }
     return scratchSet;
   }
 
-  /**
-   * Validate a region AABB for use in retrieve / retrieveInto.
-   * Non-finite coordinates or negative dimensions throw QuadtreeError with
-   * an `aiquadtreejs: ` prefix message.
-   */
-  function validateRegion(region: AABB): void {
-    if (
-      !region ||
-      !Number.isFinite(region.x) ||
-      !Number.isFinite(region.y) ||
-      !Number.isFinite(region.width) ||
-      !Number.isFinite(region.height)
-    ) {
-      throw new QuadtreeError(
-        "aiquadtreejs: retrieve region must have finite numeric x, y, width and height",
-      );
-    }
-    if (region.width < 0) {
-      throw new QuadtreeError("aiquadtreejs: retrieve region width must be >= 0");
-    }
-    if (region.height < 0) {
-      throw new QuadtreeError("aiquadtreejs: retrieve region height must be >= 0");
-    }
-  }
-
   function retrieve(region: AABB): T[] {
     ck();
-    validateRegion(region);
     return Array.from(retrieveSet(region));
   }
 
   function retrieveInto(region: AABB, target: T[]): T[] {
     ck();
-    validateRegion(region);
+    if (!Array.isArray(target)) {
+      throw new QuadtreeError("aiquadtreejs: retrieveInto target must be an array");
+    }
     const set = retrieveSet(region);
     target.length = 0;
     for (const v of set) target.push(v);
