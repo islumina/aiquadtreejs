@@ -55,6 +55,7 @@ const candidates = tree.retrieve({ x: 80, y: 80, width: 120, height: 120 });
 - Expected usage is per-frame rebuild: `clear()`, insert active bodies, query.
 - Objects spanning quadrant boundaries can be stored in multiple child nodes; results are deduplicated.
 - `maxLevels` has no hard cap. Very high values plus spanning objects can create huge node counts.
+- Subdivision also stops once a node's midpoint is no longer representable in floating point (typically around depth 45-52), so a very high `maxLevels` cannot make a dense point cluster silently vanish from `retrieve()`.
 
 ## Sharp Edges
 

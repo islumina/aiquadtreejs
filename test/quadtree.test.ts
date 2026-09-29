@@ -61,6 +61,52 @@ describe("A. Construction & validation", () => {
       QuadtreeError,
     );
   });
+
+  it("A9. bounds with prototype getters (PixiJS v8 Bounds shape) are honoured", () => {
+    // Regression: bounds was copied with `{ ...bounds }`, which drops prototype
+    // accessors, leaving a root with undefined extents — every insert vanished.
+    class GetterBounds implements AABB {
+      minX = 0;
+      minY = 0;
+      maxX = 800;
+      maxY = 600;
+      get x(): number {
+        return this.minX;
+      }
+      get y(): number {
+        return this.minY;
+      }
+      get width(): number {
+        return this.maxX - this.minX;
+      }
+      get height(): number {
+        return this.maxY - this.minY;
+      }
+    }
+    const qt = createQuadtree({ bounds: new GetterBounds() });
+    const box = aabb(100, 100, 32, 32);
+    qt.insert(box);
+    expect(qt.retrieve(aabb(0, 0, 800, 600))).toContain(box);
+  });
+
+  it("A10. bounds fields are read once: validated values are the stored values", () => {
+    // Regression (TOCTOU): a getter finite during validation but NaN on a
+    // later read must not produce an accepted-but-broken tree.
+    let reads = 0;
+    const bounds = {
+      y: 0,
+      width: 800,
+      height: 600,
+      get x(): number {
+        reads++;
+        return reads === 1 ? 0 : Number.NaN;
+      },
+    };
+    const qt = createQuadtree({ bounds });
+    const box = aabb(100, 100, 32, 32);
+    qt.insert(box);
+    expect(qt.retrieve(aabb(0, 0, 800, 600))).toContain(box);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -256,6 +302,45 @@ describe("D. Right-open AABB semantics", () => {
     qt.insert(nwObj);
     const result = qt.retrieve(aabb(50, 0, 0, 100));
     expect(result).not.toContain(nwObj);
+  });
+
+  it("D4. zero-extent query on a subdivision midline still finds a covering object", () => {
+    // Regression: the retrieve node test was strictly right-open with no
+    // zero-extent case, so a point/line on a node's min edge matched no node
+    // once unrelated inserts had subdivided the root.
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const box = aabb(350, 250, 100, 100); // covers (400, 300)
+    qt.insert(box);
+    const point = aabb(400, 300, 0, 0);
+    expect(qt.retrieve(point)).toContain(box);
+    for (let i = 0; i < 10; i++) qt.insert(aabb(10 + i, 10, 1, 1)); // subdivides root
+    expect(qt.retrieve(point)).toContain(box);
+    expect(qt.retrieve(aabb(400, 0, 0, 600))).toContain(box);
+    expect(qt.retrieve(aabb(0, 300, 800, 0))).toContain(box);
+  });
+
+  it("D5. zero-extent query at the root min corner finds a point inserted there", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 800, 600) });
+    const pt = aabb(0, 0, 0, 0);
+    qt.insert(pt);
+    expect(qt.retrieve(aabb(0, 0, 0, 0))).toContain(pt);
+  });
+
+  it("D6. zero-extent query at the subdivision midpoint finds a point inserted there", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 100, 100), maxObjects: 1, maxLevels: 4 });
+    qt.insert(aabb(10, 10, 5, 5));
+    qt.insert(aabb(90, 90, 5, 5));
+    const midPoint = aabb(50, 50, 0, 0);
+    qt.insert(midPoint);
+    expect(qt.retrieve(aabb(50, 50, 0, 0))).toContain(midPoint);
+  });
+
+  it("D7. zero-extent query on the root max edge stays outside (right-open)", () => {
+    const qt = createQuadtree({ bounds: aabb(0, 0, 100, 100) });
+    const obj = aabb(90, 90, 10, 10);
+    qt.insert(obj);
+    expect(qt.retrieve(aabb(100, 50, 0, 0))).toEqual([]);
+    expect(qt.retrieve(aabb(50, 100, 0, 0))).toEqual([]);
   });
 });
 
@@ -1047,5 +1132,30 @@ describe("M. Root boundary zero-size insertion", () => {
     qt.insert(pt);
     const result = qt.retrieve(aabb(0, 0, 800, 600));
     expect(result).not.toContain(pt);
+  });
+});
+
+describe("N. Precision-bound subdivision depth", () => {
+  it("N1. a dense point cluster stays retrievable even with maxLevels far past the ulp limit", () => {
+    // Regression for the silent-data-loss bug: subdividing purely on
+    // `node.level < maxLevels` with no representability check drives node
+    // width/height below the ulp of the coordinate, so `x + width / 2`
+    // rounds back to `x`. `subdivide()` then keeps producing children
+    // indistinguishable from their parent, and a point cluster stops
+    // matching region queries that start exactly on it.
+    const qt = createQuadtree({
+      bounds: aabb(0, 0, 800, 600),
+      maxObjects: 1,
+      maxLevels: 60,
+    });
+    const points: AABB[] = [];
+    for (let i = 0; i < 63; i++) {
+      points.push(aabb(181.3796469461808, 566.249239416442, 0, 0));
+    }
+    for (const p of points) qt.insert(p);
+    const pointQuery = qt.retrieve(aabb(181.3796469461808, 566.249239416442, 1, 1));
+    expect(pointQuery.length).toBe(63);
+    const fullQuery = qt.retrieve(aabb(0, 0, 800, 600));
+    expect(fullQuery.length).toBe(63);
   });
 });

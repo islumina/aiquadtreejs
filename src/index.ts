@@ -54,6 +54,14 @@ export interface QuadtreeOptions {
    * large vs small objects in your scene. No upper-bound cap is applied
    * (the caller knows their workload); the default `4` is safe for typical
    * game scenes with 500–10,000 entities.
+   *
+   * **Precision-bound depth:** subdivision also stops once a node's
+   * midpoint is no longer representable in floating point (its width or
+   * height has fallen below the ulp of its coordinate) — typically around
+   * depth 45-52 for typical scene-sized bounds, well below the 4^L node-count
+   * concern above. Nodes past this depth become terminal leaves regardless
+   * of `maxLevels`, so a very high `maxLevels` cannot make a dense point
+   * cluster vanish from `retrieve()`.
    */
   maxLevels?: number;
 }
@@ -94,7 +102,7 @@ export interface Quadtree<T extends AABB> {
   retrieve(region: AABB): T[];
 
   /**
-   * Zero-allocation variant of {@link retrieve}.
+   * Reduced-allocation variant of {@link retrieve}.
    *
    * Clears `target` (sets `target.length = 0`), walks the tree using the same
    * iterative DFS + Set-based dedup as {@link retrieve}, then writes every
@@ -112,12 +120,16 @@ export interface Quadtree<T extends AABB> {
    * @invariant Dedup semantics identical to {@link retrieve}: objects
    *   spanning multiple quadrants appear exactly once.
    *
-   * Allocation: in steady state this performs no per-call heap allocation.
-   * The dedup `Set` and DFS stack are reused across calls (cleared, not
-   * re-created), and results are written into the caller's `target` instead
-   * of a fresh array. The first calls may grow the internal scratch; once
-   * result sizes stabilise, allocation amortises to zero — the design goal
-   * for per-frame broadphase loops issuing thousands of queries.
+   * Allocation: this avoids the fresh result array that {@link retrieve}
+   * allocates on every call — the internal DFS stack is reused across calls,
+   * and results are written into the caller's `target` instead of a new
+   * array. It does **not** allocate zero heap per call in practice: on V8,
+   * clearing the internal dedup `Set` replaces its backing table and
+   * `target.length = 0` drops the target array's backing store, so both are
+   * rebuilt on the next call, at a cost proportional to the result size.
+   * These are small, short-lived young-generation allocations, not the
+   * unbounded fresh-array allocation `retrieve()` makes, but they do not
+   * amortise away to literally zero.
    *
    * @throws {@link QuadtreeError} if any of `region.x`, `region.y`,
    *   `region.width`, or `region.height` is non-finite (`NaN`, `Infinity`,
@@ -153,9 +165,10 @@ export interface Quadtree<T extends AABB> {
 
 /**
  * Recoverable quadtree error — thrown by `createQuadtree` for invalid
- * construction options and by `insert()` for precondition violations
+ * construction options, by `insert()` for precondition violations
  * (e.g. an inserted object with non-finite coordinates or negative
- * `width` / `height`).
+ * `width` / `height`), and by `retrieve()` / `retrieveInto()` for regions
+ * with non-finite fields or negative `width` / `height`.
  *
  * @public
  */
@@ -194,26 +207,23 @@ interface State<T extends AABB> {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-function rectsOverlap(a: AABB, b: AABB): boolean {
-  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
-}
-
-// Root containment check used only at the insert root gate.
+// Node/rect overlap test used at the insert root gate and by retrieve's
+// node walk (with the query region as `obj`).
 //
-// Right-open semantics for positive-extent dimensions (matching rectsOverlap):
-//   contained iff obj.x < bounds.x + bounds.width AND obj.x + obj.width > bounds.x
+// Right-open semantics for positive-extent dimensions:
+//   overlaps iff obj.x < bounds.x + bounds.width AND obj.x + obj.width > bounds.x
 //
 // Zero-extent exception for the minimum edge: a zero-size point sitting exactly
 // on bounds.x or bounds.y satisfies neither side of the strict-inequality test,
-// so it would be silently dropped. Instead, per axis:
-//   - zero-extent: contained iff coordinate is within [bounds.min, bounds.max) —
+// so it would be silently dropped (or, as a query, match no node). Instead, per axis:
+//   - zero-extent: overlaps iff coordinate is within [bounds.min, bounds.max) —
 //     inclusive minimum, exclusive maximum (right-open, matching the box contract)
 //   - positive-extent: keep the existing strict right-open overlap (unchanged)
 //
 // This matches quadrantIndices' own zero-extent fallback (obj.x >= midX etc.)
 // and preserves the invariant that a positive-size object flush on the right/bottom
 // exclusive boundary stays rejected.
-function rootContains(bounds: AABB, obj: AABB): boolean {
+function nodeOverlaps(bounds: AABB, obj: AABB): boolean {
   const inX =
     obj.width === 0
       ? obj.x >= bounds.x && obj.x < bounds.x + bounds.width
@@ -264,6 +274,26 @@ function subdivide<T extends AABB>(node: Node<T>): void {
   node.objects.length = 0;
 }
 
+// True while node.bounds still has a representable midpoint on both axes,
+// i.e. `x + width / 2` actually lands strictly between `x` and `x + width`
+// in floating point (and likewise for y). Once a node's width/height falls
+// below the ulp of its coordinate, the computed midpoint rounds back to `x`
+// (or up to `x + width`), so `subdivide()` would create children that are
+// not smaller than their parent — an infinite-seeming split that silently
+// stops matching queries instead of erroring. Below this point further
+// subdivision is skipped and the node stays a terminal leaf even if
+// `node.level < maxLevels`.
+function isSplitRepresentable(bounds: AABB): boolean {
+  const midX = bounds.x + bounds.width / 2;
+  const midY = bounds.y + bounds.height / 2;
+  return (
+    midX > bounds.x &&
+    midX < bounds.x + bounds.width &&
+    midY > bounds.y &&
+    midY < bounds.y + bounds.height
+  );
+}
+
 function insertNode<T extends AABB>(
   node: Node<T>,
   obj: T,
@@ -271,14 +301,11 @@ function insertNode<T extends AABB>(
   maxLevels: number,
 ): void {
   // Reject objects entirely outside the root bounds; for inner nodes we
-  // trust `quadrantIndices` to route correctly (it has zero-extent fallback
-  // logic that `rectsOverlap` does not, so the strict check is too tight
-  // at child level for points sitting on a child boundary).
-  // rootContains is used instead of rectsOverlap here so that zero-size
-  // points/lines sitting exactly on the minimum (left/top) edge are accepted
-  // with inclusive semantics, whilst positive-size objects retain right-open
-  // exclusion on the maximum edge.
-  if (node.level === 0 && !rootContains(node.bounds, obj)) return;
+  // trust `quadrantIndices` to route correctly.
+  // nodeOverlaps accepts zero-size points/lines sitting exactly on the
+  // minimum (left/top) edge with inclusive semantics, whilst positive-size
+  // objects retain right-open exclusion on the maximum edge.
+  if (node.level === 0 && !nodeOverlaps(node.bounds, obj)) return;
   if (node.children.length === 4) {
     for (const i of quadrantIndices(node, obj)) {
       const child = node.children[i];
@@ -287,7 +314,11 @@ function insertNode<T extends AABB>(
     return;
   }
   node.objects.push(obj);
-  if (node.objects.length > maxObjects && node.level < maxLevels) {
+  if (
+    node.objects.length > maxObjects &&
+    node.level < maxLevels &&
+    isSplitRepresentable(node.bounds)
+  ) {
     subdivide(node);
   }
 }
@@ -343,19 +374,26 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
   const { bounds } = opts;
   const maxObjects = opts.maxObjects ?? 10;
   const maxLevels = opts.maxLevels ?? 4;
+  // Read each field once: accessor-backed bounds (e.g. PixiJS v8 `Bounds`)
+  // would be lost by an object spread, and a second read could disagree
+  // with the validated value.
+  const bx = bounds.x;
+  const by = bounds.y;
+  const bw = bounds.width;
+  const bh = bounds.height;
 
   if (
-    !Number.isFinite(bounds.x) ||
-    !Number.isFinite(bounds.y) ||
-    !Number.isFinite(bounds.width) ||
-    !Number.isFinite(bounds.height)
+    !Number.isFinite(bx) ||
+    !Number.isFinite(by) ||
+    !Number.isFinite(bw) ||
+    !Number.isFinite(bh)
   ) {
     throw new QuadtreeError("bounds must contain finite numbers");
   }
-  if (bounds.width <= 0) {
+  if (bw <= 0) {
     throw new QuadtreeError("bounds.width must be > 0");
   }
-  if (bounds.height <= 0) {
+  if (bh <= 0) {
     throw new QuadtreeError("bounds.height must be > 0");
   }
   if (!Number.isInteger(maxObjects) || maxObjects <= 0) {
@@ -367,7 +405,7 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
 
   const state: State<T> = {
     root: {
-      bounds: { ...bounds },
+      bounds: { x: bx, y: by, width: bw, height: bh },
       level: 0,
       objects: [],
       children: [],
@@ -403,16 +441,17 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
     insertNode(state.root, obj, state.maxObjects, state.maxLevels);
   }
 
-  // Reusable scratch for retrieveSet, hoisted so steady-state queries
-  // allocate nothing. Safe because the returned Set never escapes the
-  // module: retrieve copies it out via Array.from and retrieveInto via a
-  // push loop, both synchronously and fully before any subsequent call.
+  // Reusable scratch for retrieveSet, hoisted to avoid a fresh DFS stack per
+  // call. Safe because the returned Set never escapes the module: retrieve
+  // copies it out via Array.from and retrieveInto via a push loop, both
+  // synchronously and fully before any subsequent call. Note that
+  // scratchSet.clear() still rebuilds the Set's backing table on V8, so this
+  // does not make retrieveInto literally allocation-free — see its JSDoc.
   //
   // Plain-data assumption (tightened, QDT-B-02): region.x/y/width/height
   // are read once into locals at the top of retrieveSet, then written into
-  // the reusable scratchRegion (no per-query allocation — the zero-alloc
-  // contract of retrieveInto holds). This prevents a structurally-typed
-  // region whose getter calls back into retrieve* from corrupting the shared
+  // the reusable scratchRegion. This prevents a structurally-typed region
+  // whose getter calls back into retrieve* from corrupting the shared
   // scratch mid-walk: any re-entrant call triggered by a getter completes
   // synchronously during the four reads, before this call touches scratch.
   // Adversarial-only: plain-object callers (all documented examples) are
@@ -438,7 +477,7 @@ export function createQuadtree<T extends AABB>(opts: QuadtreeOptions): Quadtree<
     while (scratchStack.length > 0) {
       const node = scratchStack.pop();
       if (node === undefined) continue;
-      if (!rectsOverlap(node.bounds, scratchRegion)) continue;
+      if (!nodeOverlaps(node.bounds, scratchRegion)) continue;
       for (const obj of node.objects) scratchSet.add(obj);
       for (const child of node.children) scratchStack.push(child);
     }
