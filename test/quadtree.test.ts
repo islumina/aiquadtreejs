@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type AABB, QuadtreeDisposedError, QuadtreeError, createQuadtree } from "../src/index.js";
+import { type AABB, createQuadtree, QuadtreeDisposedError, QuadtreeError } from "../src/index.js";
 import { nextDown } from "./float.js";
 
 // ---------------------------------------------------------------------------
